@@ -123,7 +123,7 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
 
     try {
       const rawResults = await this.mcp.search(interest, mcpCfg.searchTool);
-      this.wf.updateStatus(statusId, `✅ MCP geantwortet – ${mcpCfg.serverUrl}`, rawResults);
+      this.wf.updateStatus(statusId, `✅ MCP geantwortet – ${mcpCfg.serverUrl}`, this.mcp.lastCallRaw || rawResults);
 
       const persona = this.config.getPersona(this.wf.profile().persona)!;
       const summaryPrompt: LlmMessage = {
@@ -287,7 +287,7 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
           // MCP-Nutzung im Chat sichtbar machen
           const sid = this.wf.addStatusMessage(`🔍 MCP-Tool: "${query}" …`, 'searching');
           const result = await this.mcp.search(query, mcpCfg.searchTool);
-          this.wf.updateStatus(sid, `✅ MCP: "${query}"`, result);
+          this.wf.updateStatus(sid, `✅ MCP: "${query}"`, this.mcp.lastCallRaw || result);
           toolResults.push({ role: 'user', content: `[Tool-Ergebnis für "${query}"]: ${result}` });
         }
 

@@ -25,6 +25,7 @@ export class McpService {
   private initialized = false;
   private requestId = 0;
   private sessionId: string | null = null;
+  lastCallRaw = '';            // letzter JSON-RPC-Response als formatierter String
 
   constructor(private http: HttpClient) {}
 
@@ -87,11 +88,30 @@ export class McpService {
   }
 
   private buildHeaders(): HttpHeaders {
-    let headers = new HttpHeaders({ 'Content-Type': 'application/json' });
+    let headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+    });
     if (this.sessionId) {
       headers = headers.set('Mcp-Session-Id', this.sessionId);
     }
     return headers;
+  }
+
+  /** Parst SSE-Stream (text/event-stream) und extrahiert den letzten JSON-RPC-Response. */
+  private parseSse(text: string): any {
+    const lines = text.split('\n');
+    let lastJson: any = null;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('data:')) {
+        const data = trimmed.slice(5).trim();
+        if (data && data !== '[DONE]') {
+          try { lastJson = JSON.parse(data); } catch { /* skip */ }
+        }
+      }
+    }
+    return lastJson;
   }
 
   private async jsonRpc(method: string, params: unknown): Promise<any> {
@@ -102,14 +122,29 @@ export class McpService {
       id: ++this.requestId,
     };
     try {
-      return await firstValueFrom(
+      const raw = await firstValueFrom(
         this.http.post(this.serverUrl, body, {
           headers: this.buildHeaders(),
-          responseType: 'json',
+          responseType: 'text',
         })
       );
+      const text = raw as string;
+      let parsed: any;
+      // Versuche zuerst plain JSON, dann SSE
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = this.parseSse(text);
+      }
+      if (method === 'tools/call') {
+        this.lastCallRaw = text; // roher Text für Debug-Panel
+      }
+      return parsed;
     } catch (e: any) {
       console.error(`MCP ${method} failed:`, e?.message ?? e);
+      if (method === 'tools/call') {
+        this.lastCallRaw = `Fehler: ${e?.message ?? String(e)}`;
+      }
       return null;
     }
   }
