@@ -1,0 +1,230 @@
+# ============================================================
+# BOERDI – Chatbot-Konfiguration für WirLernenOnline.de
+# ============================================================
+# Diese Datei kann von Admins ohne Programmierkenntnisse angepasst werden.
+# YAML-Syntax: Einrückungen mit 2 Leerzeichen, keine Tabs.
+# ============================================================
+
+# ── Bot-Identität ────────────────────────────────────────────
+bot:
+  name: Boerdi
+  avatar: "🦉"
+  tagline: "Dein persönlicher Guide für WirLernenOnline.de"
+
+# ── API-Konfiguration ────────────────────────────────────────
+# API-Key: wird aus der Umgebungsvariable B_API_KEY geladen (generate-env.mjs).
+# NICHT direkt hier eintragen – in Produktion einen Proxy verwenden.
+# Lokale Entwicklung: Proxy-Pfad (proxy.conf.json leitet an B-API weiter)
+api:
+  baseUrl: "/bapi-proxy"
+  model: "gpt-4.1-mini"     # ← Modell hier ändern, z.B. gpt-4o, gpt-4-turbo
+  apiKeyHeader: "X-API-KEY"
+
+# ── MCP-Server ───────────────────────────────────────────────
+# Lokale Entwicklung: Proxy-Pfad verwenden (proxy.conf.json)
+# Produktion / WLO-MCP: vollständige URL des WLO-Inhalts-MCP eintragen
+#   z.B. serverUrl: "https://mcp.wirlernenonline.de/api/mcp"
+mcp:
+  serverUrl: "/mcp-proxy"
+  searchTool: "microsoft_docs_search"   # ← bei WLO-MCP anpassen
+  fetchTool: "microsoft_docs_fetch"     # ← bei WLO-MCP anpassen
+
+# ── Personas ─────────────────────────────────────────────────
+# Jede Persona wird durch eine Markdown-Datei in assets/personas/ beschrieben.
+# Admins können die .md-Dateien direkt bearbeiten um Ton und Verhalten anzupassen.
+# uri: OEH-Vokabular http://w3id.org/openeduhub/vocabs/intendedEndUserRole/
+personas:
+  learner:
+    label: "Lerner/in"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/learner"
+    personaFile: "assets/personas/learner.md"
+
+  teacher:
+    label: "Lehrer/in"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/teacher"
+    personaFile: "assets/personas/teacher.md"
+
+  counsellor:
+    label: "Berater/in"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/counsellor"
+    personaFile: "assets/personas/counsellor.md"
+
+  parent:
+    label: "Eltern"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/parent"
+    personaFile: "assets/personas/parent.md"
+
+  author:
+    label: "Autor/in"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/author"
+    personaFile: "assets/personas/author.md"
+
+  manager:
+    label: "Verwaltung"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/manager"
+    personaFile: "assets/personas/manager.md"
+
+  other:
+    label: "andere"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/other"
+    personaFile: "assets/personas/other.md"
+
+# ── Gesprächs-Flow ───────────────────────────────────────────
+# Schritttypen:
+#   message    – Bot sendet Nachricht, kein Input nötig
+#   choice     – User wählt eine Option (Einzelauswahl, Buttons)
+#   multiChoice – User wählt mehrere Optionen (Checkboxen)
+#   freetext   – User tippt freien Text
+#   mcp_search – Bot ruft MCP-Server auf (kein User-Input)
+#   chat       – Freier Chat-Modus mit LLM + MCP
+#
+# Felder in Optionen:
+#   label:   Angezeigter Text
+#   value:   Interner Wert (entspricht OEH-Vokabel-Kurzname)
+#   uri:     Vollständige OEH-URI (wird für spätere API-Aufrufe durchgereicht)
+#   persona: Aktiviert diese Persona wenn gewählt
+#   primary: Hebt die Option hervor
+
+flow:
+  - id: welcome
+    type: message
+    message: |
+      Hi, ich bin **Boerdi** 🦉 und möchte dich bei der Suche nach Bildungsressourcen unterstützen!
+
+      Auf **WirLernenOnline.de** findest du tausende freie Bildungsmaterialien (OER) –
+      und ich helfe dir, genau das Richtige für dich zu entdecken. 👇
+    next: role
+
+  # ── Zielgruppe ──────────────────────────────────────────────
+  # Basiert auf: http://w3id.org/openeduhub/vocabs/intendedEndUserRole/
+  - id: role
+    type: choice
+    field: role
+    message: "Für wen suchst du Materialien? Das hilft mir, besser auf dich einzugehen."
+    options:
+      - label: "🎒 Ich lerne (Schüler/in, Student/in)"
+        value: learner
+        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/learner"
+        persona: learner
+        primary: true
+      - label: "📚 Ich unterrichte (Lehrer/in)"
+        value: teacher
+        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/teacher"
+        persona: teacher
+      - label: "👪 Als Elternteil / Erziehungsberechtigte*r"
+        value: parent
+        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/parent"
+        persona: parent
+      - label: "🤝 Als Berater/in"
+        value: counsellor
+        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/counsellor"
+        persona: counsellor
+      - label: "✏️ Als Autor/in (Materialerstellung)"
+        value: author
+        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/author"
+        persona: author
+      - label: "🏛️ Verwaltung / Schulleitung"
+        value: manager
+        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/manager"
+        persona: manager
+      - label: "🔍 Anderes / Nur erkunden"
+        value: other
+        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/other"
+        persona: other
+    next: educationLevel
+
+  # ── Bildungsstufe ────────────────────────────────────────────
+  # Basiert auf: http://w3id.org/openeduhub/vocabs/educationalContext/
+  - id: educationLevel
+    type: choice
+    field: educationLevels
+    personaMessages:
+      learner: "In welcher Schulstufe oder welchem Bildungsbereich lernst du gerade?"
+      teacher: "Für welche Bildungsstufen unterrichten Sie?"
+      counsellor: "Auf welche Bildungsstufen bezieht sich Ihre Beratungstätigkeit?"
+      parent: "Welche Schulstufe besucht Ihr Kind?"
+      author: "Für welche Bildungsstufen erstellen Sie Materialien?"
+      manager: "Welche Bildungsstufen umfasst Ihre Einrichtung?"
+      other: "Welche Bildungsbereiche interessieren dich?"
+    options:
+      - label: "🧒 Elementarbereich"
+        value: elementarbereich
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/elementarbereich"
+      - label: "🏫 Schule (allgemein)"
+        value: schule
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/schule"
+      - label: "📗 Primarstufe (Grundschule)"
+        value: grundschule
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/grundschule"
+      - label: "� Sekundarstufe I (Kl. 5–10)"
+        value: sekundarstufe_1
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/sekundarstufe_1"
+      - label: "📙 Sekundarstufe II (Kl. 11–13)"
+        value: sekundarstufe_2
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/sekundarstufe_2"
+      - label: "� Hochschule"
+        value: hochschule
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/hochschule"
+      - label: "🔧 Berufliche Bildung"
+        value: berufliche_bildung
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/berufliche_bildung"
+      - label: "📈 Fortbildung"
+        value: fortbildung
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/fortbildung"
+      - label: "🌱 Erwachsenenbildung"
+        value: erwachsenenbildung
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/erwachsenenbildung"
+      - label: "🌟 Förderschule"
+        value: foerderschule
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/foerderschule"
+      - label: "💻 Fernunterricht"
+        value: fernunterricht
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/fernunterricht"
+      - label: "🔓 Informelles Lernen"
+        value: informelles_lernen
+        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/informelles_lernen"
+    next: interest
+
+  - id: interest
+    type: freetext
+    field: interest
+    personaMessages:
+      learner: "Super! 🎉 Für welches **Fach oder Thema** suchst du gerade Lernmaterialien?"
+      teacher: "Gut! Für welches **Fach oder Thema** suchen Sie Unterrichtsmaterialien?"
+      counsellor: "Zu welchem **Thema** suchen Sie Beratungs- oder Fördermaterial?"
+      parent: "Wobei möchtest du dein Kind unterstützen? Welches **Thema oder Fach**?"
+      author: "Zu welchem **Thema** suchen Sie Quellen oder Inspiration?"
+      manager: "Zu welchem **Thema** suchen Sie Ressourcen für Ihre Einrichtung?"
+      other: "Für welches **Thema** soll ich suchen?"
+    suggestions:
+      - "Azure Fundamentals"
+      - "Microsoft Teams im Unterricht"
+      - "Power Platform Grundlagen"
+      - "Microsoft 365 für Bildung"
+      - "Python Programmierung"
+      - "Künstliche Intelligenz Grundlagen"
+      - "Excel für Anfänger"
+      - "Datenschutz und IT-Sicherheit"
+    placeholder: "z.B. Mathematik Bruchrechnung, Klimawandel, Eiszeit …"
+    next: search
+
+  - id: search
+    type: mcp_search
+    message: "Ich suche gerade passende Inhalte für dich …"
+    next: chat
+
+  - id: chat
+    type: chat
+    suggestions:
+      - "Zeig mir mehr dazu"
+      - "Gibt es einfachere Materialien?"
+      - "Welche Zertifizierungen gibt es?"
+      - "Lernpfad empfehlen"
+    personaMessages:
+      learner: "Ich habe etwas für dich gefunden! 😊 Möchtest du mehr wissen, einen anderen Bereich erkunden oder hast du noch Fragen?"
+      teacher: "Hier sind passende Materialien. Möchten Sie weitere Informationen, einen anderen Bereich erkunden oder haben Sie Fragen?"
+      counsellor: "Hier sind Ergebnisse zum gewählten Thema. Wie kann ich weiter helfen?"
+      parent: "Ich habe etwas Passendes gefunden. Soll ich mehr dazu suchen oder ein anderes Thema erkunden?"
+      author: "Hier sind mögliche Quellen und Inspiration. Möchten Sie mehr dazu?"
+      manager: "Hier sind relevante Ressourcen für Ihre Einrichtung. Wie kann ich weiter helfen?"
+      other: "Hier sind die Ergebnisse. Wie kann ich weiter helfen?"

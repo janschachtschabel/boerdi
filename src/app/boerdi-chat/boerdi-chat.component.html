@@ -1,0 +1,158 @@
+<div class="chat-wrapper">
+
+  <!-- Header -->
+  <header class="chat-header">
+    <div class="header-bot">
+      <span class="header-avatar">{{ boerdiConfig?.bot?.avatar ?? '🦉' }}</span>
+      <div class="header-text">
+        <span class="header-name">{{ boerdiConfig?.bot?.name ?? 'Boerdi' }}</span>
+        <span class="header-tagline">{{ boerdiConfig?.bot?.tagline ?? '' }}</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn-icon" title="Neu starten" (click)="startFlow()">↺</button>
+    </div>
+  </header>
+
+  <!-- Messages -->
+  <div class="messages-area" #messagesContainer>
+    <ng-container *ngFor="let msg of wf.messages(); trackBy: trackById">
+
+      <!-- MCP-Status-Badge mit Debug-Panel -->
+      <div *ngIf="msg.sender === 'bot' && msg.statusType" class="mcp-status-badge">
+        <button
+          class="mcp-status-bubble"
+          [class.mcp-status--searching]="msg.statusType === 'searching'"
+          [class.mcp-status--error]="msg.statusType === 'error'"
+          [class.mcp-status--expandable]="!!msg.debugInfo"
+          (click)="msg.debugInfo && toggleDebug(msg.id)"
+          [title]="msg.debugInfo ? 'Klicken für MCP-Rohresponse' : ''"
+        >
+          <span class="mcp-icon">
+            <ng-container *ngIf="msg.statusType === 'searching'">⏳</ng-container>
+            <ng-container *ngIf="msg.statusType === 'done'">✅</ng-container>
+            <ng-container *ngIf="msg.statusType === 'error'">❌</ng-container>
+          </span>
+          <span>{{ msg.content }}</span>
+          <span *ngIf="msg.debugInfo" class="mcp-expand-icon">{{ expandedDebugId() === msg.id ? '▲' : '▼' }}</span>
+        </button>
+        <!-- Debug-Panel -->
+        <div *ngIf="msg.debugInfo && expandedDebugId() === msg.id" class="mcp-debug-panel">
+          <div class="mcp-debug-header">
+            <span>MCP Rohresponse</span>
+            <button class="mcp-debug-copy" (click)="$event.stopPropagation(); copyDebug(msg.debugInfo!)">📋 Kopieren</button>
+          </div>
+          <pre class="mcp-debug-pre">{{ msg.debugInfo }}</pre>
+        </div>
+      </div>
+
+      <!-- Bot message -->
+      <div *ngIf="msg.sender === 'bot' && !msg.statusType" class="message-row bot-row">
+        <div class="bubble-col">
+
+          <!-- Loading dots -->
+          <div *ngIf="msg.isLoading" class="bubble bot-bubble loading-bubble">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          </div>
+
+          <!-- Text bubble -->
+          <div
+            *ngIf="!msg.isLoading && msg.content"
+            class="bubble bot-bubble"
+            [innerHTML]="renderMarkdown(msg.content)"
+          ></div>
+
+          <!-- Single-choice options -->
+          <div *ngIf="msg.options && msg.options.length > 0" class="options-row">
+            <button
+              *ngFor="let opt of msg.options"
+              class="opt-btn"
+              [class.opt-btn--primary]="opt.primary"
+              [attr.disabled]="$any(opt).disabled ? true : null"
+              (click)="selectOption(opt, msg.id)"
+            >{{ opt.label }}</button>
+          </div>
+
+          <!-- Multi-choice options (falls noch genutzt) -->
+          <div *ngIf="msg.multiOptions && msg.multiOptions.length > 0" class="multi-options">
+            <div class="multi-grid">
+              <button
+                *ngFor="let opt of msg.multiOptions"
+                class="multi-btn"
+                [class.multi-btn--selected]="opt.selected"
+                [attr.disabled]="$any(opt).disabled ? true : null"
+                (click)="toggleMultiOption(msg.id, opt.value)"
+              >
+                <span class="multi-check">{{ opt.selected ? '✓' : '' }}</span>
+                {{ opt.label }}
+              </button>
+            </div>
+            <div *ngIf="!$any(msg.multiOptions[0]).disabled" class="multi-actions">
+              <button class="opt-btn opt-btn--primary" (click)="confirmMultiChoice()">Weiter →</button>
+              <button class="opt-btn" (click)="skipMultiChoice()">Überspringen</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- User message -->
+      <div *ngIf="msg.sender === 'user'" class="message-row user-row">
+        <div class="bubble user-bubble" [innerHTML]="renderMarkdown(msg.content)"></div>
+      </div>
+
+    </ng-container>
+  </div>
+
+  <!-- Suggestion Chips -->
+  <div
+    *ngIf="isFreetextActive() && getSuggestionsForCurrentStep().length > 0 && !isInputDisabled()"
+    class="suggestions-row"
+  >
+    <button
+      *ngFor="let s of getSuggestionsForCurrentStep()"
+      class="suggestion-chip"
+      (click)="selectSuggestion(s)"
+    >{{ s }}</button>
+  </div>
+
+  <!-- Charakter-Footer: aktiver Schreiber farbig, anderer ausgegraut -->
+  <div class="chat-characters">
+    <span
+      class="char-person"
+      [class.char-active]="!wf.isLoading()"
+      [class.char-inactive]="wf.isLoading()"
+    >👤</span>
+    <span
+      class="char-owl"
+      [class.char-active]="wf.isLoading()"
+      [class.char-inactive]="!wf.isLoading()"
+    >{{ boerdiConfig?.bot?.avatar ?? '🦉' }}</span>
+  </div>
+
+  <!-- Input area -->
+  <div class="input-area" [class.input-area--disabled]="isInputDisabled()">
+    <input
+      #inputField
+      class="text-input"
+      type="text"
+      [placeholder]="getPlaceholder()"
+      [value]="userInput()"
+      (input)="userInput.set($any($event.target).value)"
+      (keydown.enter)="sendMessage()"
+      [disabled]="isInputDisabled() || !isFreetextActive()"
+    />
+    <button
+      class="send-btn"
+      [disabled]="isInputDisabled() || !isFreetextActive()"
+      (click)="sendMessage()"
+      title="Senden"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="22" y1="2" x2="11" y2="13"></line>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+      </svg>
+    </button>
+  </div>
+
+</div>

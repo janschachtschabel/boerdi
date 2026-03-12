@@ -1,0 +1,16 @@
+{
+  "/mcp-proxy": {
+    "target": "https://learn.microsoft.com",
+    "secure": true,
+    "changeOrigin": true,
+    "pathRewrite": { "^/mcp-proxy": "/api/mcp" },
+    "logLevel": "debug"
+  },
+  "/bapi-proxy": {
+    "target": "https://b-api.staging.openeduhub.net",
+    "secure": true,
+    "changeOrigin": true,
+    "pathRewrite": { "^/bapi-proxy": "/api/v1/llm/openai" },
+    "logLevel": "debug"
+  }
+}
