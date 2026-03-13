@@ -16,6 +16,8 @@ export interface ChatMessage {
   content: string;         // Markdown-Text
   options?: MessageOption[];
   multiOptions?: MultiOption[];
+  wloCards?: WloCard[];    // WLO-Kacheln (Sammlungen/Inhalte)
+  cardsPagination?: CardsPagination; // Pagination state für Sammlungsinhalte
   isLoading?: boolean;
   statusType?: 'searching' | 'done' | 'error'; // MCP-Status-Badge
   debugInfo?: string;          // Rohresponse vom MCP zur Debug-Anzeige
@@ -36,6 +38,29 @@ export interface MultiOption {
   value: string;
   uri?: string;      // OEH-URI für späteren API-Aufruf
   selected: boolean;
+}
+
+export interface CardsPagination {
+  nodeId: string;
+  title: string;
+  skip: number;
+  total: number;
+}
+
+export interface WloCard {
+  nodeId: string;
+  title: string;
+  description: string;
+  disciplines: string[];
+  educationalContexts: string[];
+  keywords: string[];
+  learningResourceTypes: string[];
+  url: string;
+  wloUrl: string;
+  previewUrl: string;
+  license: string;
+  publisher: string;
+  nodeType: 'collection' | 'content';
 }
 
 @Injectable({ providedIn: 'root' })
@@ -135,9 +160,21 @@ export class WorkflowService {
     return msg;
   }
 
-  replaceMessage(id: string, content: string): void {
+  replaceMessage(id: string, content: string, wloCards?: WloCard[]): void {
     this.messages.update(msgs =>
-      msgs.map(m => (m.id === id ? { ...m, content, isLoading: false } : m))
+      msgs.map(m => (m.id === id ? { ...m, content, isLoading: false, ...(wloCards ? { wloCards } : {}) } : m))
+    );
+  }
+
+  setMessageCards(id: string, wloCards: WloCard[]): void {
+    this.messages.update(msgs =>
+      msgs.map(m => (m.id === id ? { ...m, wloCards } : m))
+    );
+  }
+
+  setMessagePagination(id: string, pagination: CardsPagination): void {
+    this.messages.update(msgs =>
+      msgs.map(m => (m.id === id ? { ...m, cardsPagination: pagination } : m))
     );
   }
 

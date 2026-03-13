@@ -25,9 +25,9 @@ api:
 # Produktion / WLO-MCP: vollständige URL des WLO-Inhalts-MCP eintragen
 #   z.B. serverUrl: "https://mcp.wirlernenonline.de/api/mcp"
 mcp:
-  serverUrl: "/mcp-proxy"
-  searchTool: "microsoft_docs_search"   # ← bei WLO-MCP anpassen
-  fetchTool: "microsoft_docs_fetch"     # ← bei WLO-MCP anpassen
+  serverUrl: "https://wlo-mcp-server.vercel.app/mcp"
+  searchTool: "search_wlo_collections"  # Sammlungen/Themenseiten suchen
+  fetchTool: "fetch_web_content"         # Projektwebseiten abrufen
 
 # ── Personas ─────────────────────────────────────────────────
 # Jede Persona wird durch eine Markdown-Datei in assets/personas/ beschrieben.
@@ -189,23 +189,25 @@ flow:
     type: freetext
     field: interest
     personaMessages:
-      learner: "Super! 🎉 Für welches **Fach oder Thema** suchst du gerade Lernmaterialien?"
-      teacher: "Gut! Für welches **Fach oder Thema** suchen Sie Unterrichtsmaterialien?"
+      learner: "Super! 🎉 Für welches **Thema** suchst du gerade Lernmaterialien?"
+      teacher: "Gut! Für welches **Thema** suchen Sie Unterrichtsmaterialien?"
       counsellor: "Zu welchem **Thema** suchen Sie Beratungs- oder Fördermaterial?"
-      parent: "Wobei möchtest du dein Kind unterstützen? Welches **Thema oder Fach**?"
+      parent: "Wobei möchtest du dein Kind unterstützen? Welches **Thema**?"
       author: "Zu welchem **Thema** suchen Sie Quellen oder Inspiration?"
       manager: "Zu welchem **Thema** suchen Sie Ressourcen für Ihre Einrichtung?"
       other: "Für welches **Thema** soll ich suchen?"
     suggestions:
-      - "Azure Fundamentals"
-      - "Microsoft Teams im Unterricht"
-      - "Power Platform Grundlagen"
-      - "Microsoft 365 für Bildung"
-      - "Python Programmierung"
-      - "Künstliche Intelligenz Grundlagen"
-      - "Excel für Anfänger"
-      - "Datenschutz und IT-Sicherheit"
-    placeholder: "z.B. Mathematik Bruchrechnung, Klimawandel, Eiszeit …"
+      - "Addition und Subtraktion"
+      - "Klimawandel und Nachhaltigkeit"
+      - "Demokratie und Gesellschaft"
+      - "Bruchrechnung"
+      - "Deutsch Grammatik"
+      - "Programmieren lernen"
+      - "Englisch Grundschule"
+      - "Biologie Zelle"
+      - "Geschichte Zweiter Weltkrieg"
+      - "Physik Mechanik"
+    placeholder: "z.B. Mathematik Bruchrechnung, Klimawandel, Fotosynthese …"
     next: search
 
   - id: search
@@ -216,15 +218,17 @@ flow:
   - id: chat
     type: chat
     suggestions:
-      - "Zeig mir mehr dazu"
-      - "Gibt es einfachere Materialien?"
-      - "Welche Zertifizierungen gibt es?"
-      - "Lernpfad empfehlen"
+      - "Zeig mir die Inhalte dieser Sammlung"
+      - "Gibt es Untersammlungen dazu?"
+      - "Suche nach einem anderen Thema"
+      - "Was ist WirLernenOnline?"
+      - "Welche Materialien gibt es für Anfänger?"
+      - "Gibt es Videos dazu?"
     personaMessages:
-      learner: "Ich habe etwas für dich gefunden! 😊 Möchtest du mehr wissen, einen anderen Bereich erkunden oder hast du noch Fragen?"
-      teacher: "Hier sind passende Materialien. Möchten Sie weitere Informationen, einen anderen Bereich erkunden oder haben Sie Fragen?"
-      counsellor: "Hier sind Ergebnisse zum gewählten Thema. Wie kann ich weiter helfen?"
-      parent: "Ich habe etwas Passendes gefunden. Soll ich mehr dazu suchen oder ein anderes Thema erkunden?"
-      author: "Hier sind mögliche Quellen und Inspiration. Möchten Sie mehr dazu?"
-      manager: "Hier sind relevante Ressourcen für Ihre Einrichtung. Wie kann ich weiter helfen?"
-      other: "Hier sind die Ergebnisse. Wie kann ich weiter helfen?"
+      learner: "Ich habe passende Themenseiten für dich gefunden! 😊 Klicke auf eine Kachel oder stelle mir weitere Fragen – z.B. zu den Inhalten einer Sammlung."
+      teacher: "Hier sind passende Sammlungen (Themenseiten). Möchten Sie die Inhalte einer Sammlung sehen, oder haben Sie weitere Fragen?"
+      counsellor: "Hier sind passende Sammlungen zum Thema. Wie kann ich weiter helfen?"
+      parent: "Ich habe passende Themenseiten gefunden. Soll ich die Inhalte anzeigen oder ein anderes Thema erkunden?"
+      author: "Hier sind thematisch passende Sammlungen. Möchten Sie mehr dazu?"
+      manager: "Hier sind relevante Sammlungen für Ihre Einrichtung. Wie kann ich weiter helfen?"
+      other: "Hier sind die gefundenen Themenseiten. Wie kann ich weiter helfen?"

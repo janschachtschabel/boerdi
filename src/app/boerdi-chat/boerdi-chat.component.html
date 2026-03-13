@@ -62,6 +62,71 @@
             [innerHTML]="renderMarkdown(msg.content)"
           ></div>
 
+          <!-- WLO-Kacheln (Sammlungen / Inhalte) -->
+          <div *ngIf="msg.wloCards && msg.wloCards.length > 0" class="wlo-cards-grid">
+            <a
+              *ngFor="let card of msg.wloCards"
+              class="wlo-card"
+              [class.wlo-card--collection]="card.nodeType === 'collection'"
+              [href]="card.url || card.wloUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              [title]="card.title"
+            >
+              <!-- Vorschaubild -->
+              <div class="wlo-card__img">
+                <img
+                  *ngIf="card.previewUrl"
+                  [src]="card.previewUrl"
+                  [alt]="card.title"
+                  loading="lazy"
+                  (error)="$any($event.target).style.display='none'"
+                />
+                <div *ngIf="!card.previewUrl" class="wlo-card__img-placeholder">
+                  {{ card.nodeType === 'collection' ? '📁' : '�' }}
+                </div>
+              </div>
+              <!-- Inhalt -->
+              <div class="wlo-card__body">
+                <!-- Typ-Badge -->
+                <div class="wlo-card__type">
+                  <span class="chip chip--sammlung" *ngIf="card.nodeType === 'collection'">Sammlung</span>
+                  <span class="chip chip--inhalt"   *ngIf="card.nodeType === 'content'">Inhalt</span>
+                </div>
+                <p class="wlo-card__title">{{ card.title }}</p>
+                <p *ngIf="card.description" class="wlo-card__desc">{{ card.description }}</p>
+                <!-- Chips: Fach + Bildungsstufe + Ressourcentyp + Lizenz -->
+                <div class="wlo-card__chips">
+                  <span *ngFor="let d of card.disciplines" class="chip chip--fach">{{ d }}</span>
+                  <span *ngFor="let e of card.educationalContexts" class="chip chip--stufe">{{ e }}</span>
+                  <span *ngFor="let t of card.learningResourceTypes" class="chip chip--typ">{{ t }}</span>
+                  <span *ngIf="card.license" class="chip chip--license">{{ card.license }}</span>
+                </div>
+                <!-- Keywords (max 3) -->
+                <div *ngIf="card.keywords?.length" class="wlo-card__keywords">
+                  <span *ngFor="let k of card.keywords.slice(0, 3)" class="chip chip--keyword">{{ k }}</span>
+                </div>
+                <span *ngIf="card.publisher" class="wlo-card__publisher">{{ card.publisher }}</span>
+                <!-- Aktions-Buttons -->
+                <div *ngIf="card.nodeType === 'collection'" class="wlo-card__actions">
+                  <button
+                    class="card-btn card-btn--primary"
+                    (click)="$event.preventDefault(); $event.stopPropagation(); browseCollection(card.nodeId, card.title, 0)"
+                  >📋 Inhalte</button>
+                </div>
+              </div>
+            </a>
+          </div>
+          <!-- Pagination: weitere Inhalte laden -->
+          <div *ngIf="msg.cardsPagination" class="wlo-cards-pagination">
+            <button
+              class="card-btn card-btn--more"
+              (click)="browseCollection(msg.cardsPagination!.nodeId, msg.cardsPagination!.title, msg.cardsPagination!.skip)"
+            >
+              Weiter ({{ msg.cardsPagination.skip + 1 }}–{{ msg.cardsPagination.skip + 4 > msg.cardsPagination.total ? msg.cardsPagination.total : msg.cardsPagination.skip + 4 }} von {{ msg.cardsPagination.total }})
+            </button>
+          </div>
+
           <!-- Single-choice options -->
           <div *ngIf="msg.options && msg.options.length > 0" class="options-row">
             <button

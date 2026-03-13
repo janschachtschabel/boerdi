@@ -1,6 +1,6 @@
 # Boerdi 🦉
 
-**Boerdi** ist ein KI-gestützter Chatbot zur Suche nach freien Bildungsmaterialien (OER) auf [WirLernenOnline.de](https://wirlernenonline.de). Er nutzt einen konfigurierbaren Konversationsfluss, personas-bewusste LLM-Antworten und den Microsoft Learn MCP-Server zur semantischen Ressourcensuche.
+**Boerdi** ist ein KI-gestützter Chatbot zur Suche nach freien Bildungsmaterialien (OER) auf [WirLernenOnline.de](https://wirlernenonline.de). Er nutzt einen konfigurierbaren Konversationsfluss, personas-bewusste LLM-Antworten und den [WLO MCP Server](../wlomcp) zur semantischen Suche in WLO-Sammlungen und Inhalten.
 
 ---
 
@@ -11,7 +11,7 @@
 | Frontend | Angular 17 (Standalone Components) |
 | Styling | SCSS |
 | LLM-API | B-API (OpenAI-kompatibel) via `/bapi-proxy` |
-| Suche | Microsoft Learn MCP via `/mcp-proxy` |
+| MCP-Suche | [WLO MCP Server](../wlomcp) via `/mcp-proxy` |
 | Konfiguration | YAML (`src/assets/boerdi-config.yml`) |
 | Personas | Markdown-Dateien (`src/assets/personas/`) |
 | Deployment | Vercel (statisch + Edge-Rewrites als Proxy) |
@@ -156,10 +156,52 @@ Die `vercel.json` konfiguriert Vercel als transparenten Proxy für:
 
 | Lokaler Pfad | Ziel |
 |---|---|
-| `/mcp-proxy` | `https://learn.microsoft.com/api/mcp` |
+| `/mcp-proxy` | WLO MCP Server (konfiguriert in `boerdi-config.yml` → `mcpUrl`) |
 | `/bapi-proxy` | `https://b-api.staging.openeduhub.net/api/v1/llm/openai` |
 
 Dadurch entstehen keine CORS-Probleme im Browser.
+
+---
+
+## WLO-Kacheln (Cards)
+
+Nach einer Suche zeigt Boerdi die Ergebnisse als interaktive Kacheln an:
+
+- **Typ-Badge:** Jede Kachel zeigt ob es eine `Sammlung` (blau) oder ein `Inhalt` (grün) ist
+- **Vorschaubild:** Wird über `previewUrl` geladen; bei Fehler oder fehlendem Bild erscheint ein Icon (📁 / 📄)
+- **„Inhalte“-Button:** Auf Sammlungskacheln – lädt die ersten 4 Inhalte der Sammlung als neue Chat-Nachricht
+- **Pagination:** Unter den Kacheln erscheint `Weiter (5–8 von N)` wenn mehr Inhalte verfügbar sind
+- **Maximal 4 Kacheln** pro Nachricht (2×2 Grid)
+
+## Tool-Routing
+
+Der Chat-LLM verfügt über 9 Tools und folgt diesen Routing-Regeln:
+
+| Frage-Typ | Verwendetes Tool |
+|---|---|
+| Themensuche ("Klimawandel", "Bruchrechnung") | `search_wlo_collections` |
+| Inhaltstypen ("Videos", "Arbeitsblätter", "PDFs") | `search_wlo_content` |
+| Inhalte einer Sammlung durchblättern | `get_collection_contents` |
+| Details zu einem Inhalt/Node | `get_node_details` |
+| Fragen zu WirLernenOnline als Plattform | `get_wirlernenonline_info` |
+| Fragen zu edu-sharing Network/Projekten | `get_edu_sharing_network_info` |
+| Fragen zu edu-sharing Software/Produkt | `get_edu_sharing_product_info` |
+| Fragen zu metaVentis | `get_metaventis_info` |
+| Filterwerte für Fach/Stufe nachschlagen | `lookup_wlo_vocabulary` |
+
+---
+
+## Konversationsfluss
+
+Der Fluss ist in `boerdi-config.yml` konfiguriert:
+
+```
+welcome → role (Persona-Auswahl) → level (Bildungsstufe) → interest (Thema) → search (MCP) → chat
+```
+
+- **`mcp_search`-Schritt:** Ruft automatisch `search_wlo_collections` auf, fasst Ergebnisse zusammen und zeigt Kacheln
+- **`chat`-Schritt:** Freies Chat-Interface mit vollem Tool-Zugriff und Tool-Routing-Regeln
+- **Personas:** 7 vorkonfigurierte Rollen (Lernende, Lehrende, Beratung, Eltern, Autoren, Manager, Andere) mit individuellen System-Prompts
 
 ---
 
@@ -171,17 +213,17 @@ boerdi/
 │   ├── app/
 │   │   ├── boerdi-chat/          # Haupt-Chat-Komponente (HTML, TS, SCSS)
 │   │   └── services/
-│   │       ├── config.service.ts # Lädt boerdi-config.yml
-│   │       ├── workflow.service.ts # Gesprächszustand + Nachrichten
-│   │       ├── llm.service.ts    # LLM-Anfragen (B-API)
-│   │       └── mcp.service.ts    # MCP-Suche
+│   │       ├── config.service.ts   # Lädt boerdi-config.yml + Personas
+│   │       ├── workflow.service.ts # Gesprächszustand, Nachrichten, WloCard-Modell
+│   │       ├── llm.service.ts      # LLM-Anfragen (B-API, Tool-Calling)
+│   │       └── mcp.service.ts      # WLO MCP Tool-Aufrufe
 │   ├── assets/
-│   │   ├── boerdi-config.yml     # ⚙️ Haupt-Konfiguration
-│   │   └── personas/             # 📝 Persona-Markdown-Dateien
-│   └── environments/             # 🔒 Gitignored — wird generiert
-├── generate-env.mjs              # Build-Zeit Key-Injektion
-├── vercel.json                   # Vercel Build + Proxy-Config
-├── proxy.conf.json               # Lokaler Dev-Proxy (ng serve)
+│   │   ├── boerdi-config.yml     # ⚙️ Haupt-Konfiguration (Fluss, Tools, MCP-URL, LLM)
+│   │   └── personas/             # 📝 7 Persona-Markdown-Dateien (System-Prompts)
+│   └── environments/             # 🔒 Gitignored — wird zur Build-Zeit generiert
+├── generate-env.mjs              # Build-Zeit Key-Injektion aus Umgebungsvariablen
+├── vercel.json                   # Vercel Build + Proxy-Rewrites (bapi, mcp)
+├── proxy.conf.json               # Lokaler Dev-Proxy für ng serve
 └── angular.json
 ```
 

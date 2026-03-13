@@ -73,10 +73,15 @@ export class LlmService {
     messages: LlmMessage[],
     persona: PersonaConfig,
     tools: LlmTool[],
-    temperature = 0.5
+    temperature = 0.5,
+    extraSystemContext?: string
   ): Promise<LlmChoice> {
+    const systemBase = persona.systemPrompt ?? 'Du bist Boerdi, ein hilfreicher Assistent für WirLernenOnline.de.';
+    const systemContent = extraSystemContext ? `${systemBase}
+
+${extraSystemContext}` : systemBase;
     const all: LlmMessage[] = [
-      { role: 'system', content: persona.systemPrompt ?? 'Du bist Boerdi, ein hilfreicher Assistent für WirLernenOnline.de.' },
+      { role: 'system', content: systemContent },
       ...messages,
     ];
     return this.completeWithTools(all, tools, temperature);

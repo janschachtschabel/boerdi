@@ -7,7 +7,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { marked } from 'marked';
 import { ConfigService, FlowStep, BoerdiConfig } from '../services/config.service';
-import { WorkflowService, ChatMessage, MessageOption, UserProfile } from '../services/workflow.service';
+import { WorkflowService, ChatMessage, MessageOption, UserProfile, WloCard, CardsPagination } from '../services/workflow.service';
 import { McpService } from '../services/mcp.service';
 import { LlmService, LlmMessage, LlmTool } from '../services/llm.service';
 
@@ -114,26 +114,46 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
 
   private async handleMcpSearchStep(step: FlowStep): Promise<void> {
     const interest = this.wf.profile().interest;
-    const mcpCfg = this.boerdiConfig!.mcp;
+    const profile  = this.wf.profile();
+    const mcpCfg   = this.boerdiConfig!.mcp;
 
-    // MCP-Status anzeigen
-    const statusId = this.wf.addStatusMessage(`🔍 MCP wird abgefragt: "${interest}" …`, 'searching');
+    const statusId = this.wf.addStatusMessage(`🔍 Suche Themenseiten: „${interest}" …`, 'searching');
     this.wf.isLoading.set(true);
     const loadMsg = this.wf.addLoadingMessage();
 
     try {
-      const rawResults = await this.mcp.search(interest, mcpCfg.searchTool);
-      this.wf.updateStatus(statusId, `✅ MCP geantwortet – ${mcpCfg.serverUrl}`, this.mcp.lastCallRaw || rawResults);
+      const toArr = (v: string | string[]): string[] => Array.isArray(v) ? v : (v ? [v] : []);
+      const levelUris = toArr(profile.educationLevelUris);
+      const levels    = toArr(profile.educationLevels);
+      const persona   = this.config.getPersona(profile.persona)!;
+      const filters: Record<string, unknown> = {};
+      if (levelUris.length) filters['educationalContext'] = levelUris[0];
+      if (profile.roleUri)  filters['userRole'] = profile.roleUri;
 
-      const persona = this.config.getPersona(this.wf.profile().persona)!;
+      // ── Phase 1: direkte Suche ────────────────────────────────────────────
+      const { rawResults, usedTool } = await this.guidedCollectionSearch(
+        interest, filters, statusId, persona
+      );
+
+      this.wf.updateStatus(statusId, `✅ ${usedTool} – Ergebnisse erhalten`, rawResults);
+      const cardDefault = usedTool === 'search_wlo_content' ? 'content' : 'collection';
+      const cards = this.parseWloCards(rawResults, cardDefault);
+      const resultType = usedTool === 'search_wlo_content' ? 'einzelne Lernmaterialien' : 'Themenseiten (Sammlungen)';
+
       const summaryPrompt: LlmMessage = {
         role: 'user',
-        content: `Der Nutzer interessiert sich für: "${interest}"\n\nHier sind rohe Suchergebnisse vom Bildungs-MCP-Server:\n\n${rawResults}\n\nFasse diese Ergebnisse hilfreich und übersichtlich zusammen. Hebe die wichtigsten 2–3 Treffer hervor. Formatiere mit Markdown.`,
-      };
+        content: `Der Nutzer interessiert sich für: „${interest}". Bildungsstufe: ${levels.join(', ') || 'nicht angegeben'}. Rolle: ${profile.role}.
 
+Gefundene ${resultType} aus WLO:
+
+${rawResults}
+
+Fasse kurz in 2–3 Sätzen zusammen, was gefunden wurde. Wenn du Titel von Sammlungen/Inhalten erwähnst, verlinke sie mit der zugehörigen URL aus den Ergebnissen im Markdown-Format [Titel](URL). Hinweis: Die Kacheln sind bereits als visuelle Karten sichtbar – kein nochmaliges Auflisten nötig.`,
+      };
       const summary = await this.llm.chat([...this.chatHistory, summaryPrompt], persona, 0.6);
       this.chatHistory.push(summaryPrompt, { role: 'assistant', content: summary });
-      this.wf.replaceMessage(loadMsg.id, summary);
+      this.wf.replaceMessage(loadMsg.id, summary, cards.length ? cards : undefined);
+
     } catch (e: any) {
       this.wf.updateStatus(statusId, `❌ MCP-Fehler: ${e.message}`);
       this.wf.replaceMessage(loadMsg.id, `❌ Fehler bei der Suche: ${(e as Error).message}`);
@@ -142,6 +162,193 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
     }
 
     if (step.next) await this.processStep(step.next);
+  }
+
+  /**
+   * LLM-guided tree traversal for WLO collections.
+   *
+   * Strategy:
+   *   1. Standard search (Level 1+2+3 on MCP server) – fast, covers broad topics
+   *   2. If empty → LLM picks best Level-1 node → search within it
+   *   3. If still empty → LLM picks best Level-2 node within that → search within it
+   *   4. If still empty → fall back to search_wlo_content (files/materials)
+   */
+  private async guidedCollectionSearch(
+    query: string,
+    filters: Record<string, unknown>,
+    statusId: string,
+    persona: import('../services/config.service').PersonaConfig
+  ): Promise<{ rawResults: string; usedTool: string }> {
+    const mcpText = (r: any): string =>
+      (r.content as any[]).filter(c => c.type === 'text').map(c => c.text ?? '').join('\n\n');
+    const isEmpty = (t: string) => !t || t.toLowerCase().startsWith('keine');
+
+    // ── Step 1: Standard server search (built-in L1→L2→L3 keyword match) ─────
+    const step1 = await this.mcp.callTool('search_wlo_collections', { query, maxResults: 4, ...filters });
+    const text1 = mcpText(step1);
+    if (!isEmpty(text1)) return { rawResults: text1, usedTool: 'search_wlo_collections' };
+
+    // ── Step 2: LLM-guided recursive traversal (up to 6 levels) ──────────────
+    this.wf.updateStatus(statusId, `🤔 KI durchsucht Themenbaum für „${query}" …`, 'searching');
+    const guided = await this.traverseTree(query, null, 0, 6, filters, statusId, persona);
+    if (guided) return { rawResults: guided, usedTool: 'search_wlo_collections' };
+
+    // ── Step 3: Fallback – full-text material search ──────────────────────────
+    this.wf.updateStatus(statusId, `� Keine Sammlungen – suche Einzelmaterialien …`, 'searching');
+    const contentRes = await this.mcp.callTool('search_wlo_content', { query, maxResults: 4, ...filters });
+    const textContent = mcpText(contentRes);
+    if (!isEmpty(textContent)) return { rawResults: textContent, usedTool: 'search_wlo_content' };
+
+    return { rawResults: `Leider keine Ergebnisse für „${query}" gefunden.`, usedTool: 'search_wlo_collections' };
+  }
+
+  /**
+   * Recursively traverses the WLO collection tree guided by the LLM.
+   * At each level: browse children → LLM picks best → search within → if empty go deeper.
+   */
+  private async traverseTree(
+    query: string,
+    parentNodeId: string | null,
+    depth: number,
+    maxDepth: number,
+    filters: Record<string, unknown>,
+    statusId: string,
+    persona: import('../services/config.service').PersonaConfig
+  ): Promise<string | null> {
+    const mcpText = (r: any): string =>
+      (r.content as any[]).filter(c => c.type === 'text').map(c => c.text ?? '').join('\n\n');
+    const isEmpty = (t: string) => !t || t.toLowerCase().startsWith('keine');
+
+    // Browse children at current level (empty query = list all)
+    const browseArgs: Record<string, unknown> = { query: '', maxResults: 25 };
+    if (parentNodeId) browseArgs['parentNodeId'] = parentNodeId;
+    const browseRes = await this.mcp.callTool('search_wlo_collections', browseArgs);
+    const browseText = mcpText(browseRes);
+    if (isEmpty(browseText)) return null;
+
+    // LLM picks the most relevant child
+    const bestNodeId = await this.llmPickNode(query, browseText, persona);
+    if (!bestNodeId) return null;
+
+    const levelNames = ['Fachportal', 'Themenbereich', 'Unterthema', 'Kapitel', 'Abschnitt', 'Detailthema'];
+    const levelLabel = levelNames[depth] ?? `Ebene ${depth + 1}`;
+    const title = this.extractTitleForNode(browseText, bestNodeId);
+    this.wf.updateStatus(statusId, `� ${levelLabel}: „${title || bestNodeId}" …`, 'searching');
+
+    // Search within selected node
+    const searchRes = await this.mcp.callTool('search_wlo_collections',
+      { query, parentNodeId: bestNodeId, maxResults: 5, ...filters });
+    const searchText = mcpText(searchRes);
+    if (!isEmpty(searchText)) return searchText;
+
+    // Nothing found → go one level deeper if budget allows
+    if (depth < maxDepth) {
+      return this.traverseTree(query, bestNodeId, depth + 1, maxDepth, filters, statusId, persona);
+    }
+    return null;
+  }
+
+  /** Asks the LLM to pick the most relevant nodeId from a renderToText listing. */
+  private async llmPickNode(
+    query: string,
+    collectionsText: string,
+    persona: import('../services/config.service').PersonaConfig
+  ): Promise<string | null> {
+    const prompt: LlmMessage = {
+      role: 'user',
+      content: `Verfügbare WLO-Sammlungen:\n\n${collectionsText}\n\nSuche: "${query}"\n\nAntworte NUR mit der nodeId der am besten passenden Sammlung (UUID-Format, z.B. abc12345-…). Falls keine passt: "none".`,
+    };
+    const answer = await this.llm.chat([prompt], persona, 0);
+    return this.extractNodeId(answer);
+  }
+
+  /** Extracts the title of a specific nodeId from a renderToText block list. */
+  private extractTitleForNode(text: string, nodeId: string): string {
+    const blocks = text.split(/\n(?=## )/);
+    for (const block of blocks) {
+      if (block.includes(`nodeId: ${nodeId}`)) {
+        return block.split('\n')[0].replace(/^##\s+/, '').trim();
+      }
+    }
+    return '';
+  }
+
+  /** Extracts the first UUID from an LLM response string. */
+  private extractNodeId(text: string): string | null {
+    const match = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    return match ? match[0] : null;
+  }
+
+  /** Parst das renderToText-Format des WLO-MCP-Servers in WloCard-Objekte. */
+  parseWloCards(text: string, defaultType: 'collection' | 'content' = 'content'): WloCard[] {
+    if (!text) return [];
+    const blocks = text.split(/\n(?=## )/);
+    return blocks.map(block => {
+      const lines = block.split('\n');
+      const title = (lines[0] ?? '').replace(/^##\s+/, '').trim();
+      const get = (key: string): string => {
+        const line = lines.find(l => l.startsWith(key + ': '));
+        return line ? line.slice(key.length + 2).trim() : '';
+      };
+      const getList = (key: string): string[] => {
+        const val = get(key);
+        return val ? val.split(', ').map(s => s.trim()).filter(Boolean) : [];
+      };
+      const nodeId = get('nodeId');
+      return {
+        nodeId,
+        title,
+        description: get('Beschreibung'),
+        disciplines: getList('Fach'),
+        educationalContexts: getList('Bildungsstufe'),
+        keywords: getList('Schlagworte'),
+        learningResourceTypes: getList('Ressourcentyp'),
+        url: get('URL'),
+        previewUrl: get('Vorschaubild'),
+        license: get('Lizenz'),
+        publisher: get('Anbieter'),
+        wloUrl: nodeId
+          ? `https://redaktion.openeduhub.net/edu-sharing/components/render/${nodeId}`
+          : '',
+        nodeType: get('Typ') === 'Sammlung' ? 'collection'
+          : get('Typ') === 'Inhalt' ? 'content'
+          : defaultType,
+      } as WloCard;
+    }).filter(c => !!c.nodeId && !!c.title);
+  }
+
+  async browseCollection(nodeId: string, title: string, skip: number): Promise<void> {
+    const statusId = this.wf.addStatusMessage(`Lade Inhalte von "${title}" ...`, 'searching');
+    this.wf.isLoading.set(true);
+    const loadMsg = this.wf.addLoadingMessage();
+    try {
+      const result = await this.mcp.callTool('get_collection_contents', {
+        nodeId,
+        contentFilter: 'files',
+        maxResults: 4,
+        skipCount: skip,
+      });
+      const rawText = (result.content as any[])
+        .filter(c => c.type === 'text').map(c => c.text ?? '').join('\n\n');
+      const cards = this.parseWloCards(rawText, 'content');
+      const totalMatch = rawText.match(/Gefundene Treffer gesamt: (\d+)/);
+      const total = totalMatch ? parseInt(totalMatch[1], 10) : (skip + cards.length);
+      const shown = skip + cards.length;
+      const summary = cards.length
+        ? `**${title}** (${skip + 1}\u2013${shown} von ${total})`
+        : `Keine Inhalte in "${title}" gefunden.`;
+      this.wf.updateStatus(statusId, `Inhalte von "${title}" geladen`, rawText);
+      this.wf.replaceMessage(loadMsg.id, summary, cards.length ? cards : undefined);
+      if (shown < total) {
+        this.wf.setMessagePagination(loadMsg.id, { nodeId, title, skip: shown, total });
+      }
+    } catch (e: any) {
+      this.wf.updateStatus(statusId, `Fehler: ${e.message}`);
+      this.wf.replaceMessage(loadMsg.id, `Fehler beim Laden der Inhalte.`);
+    } finally {
+      this.wf.isLoading.set(false);
+      this.shouldScrollToBottom = true;
+    }
   }
 
   private async handleChatStep(step: FlowStep): Promise<void> {
@@ -162,7 +369,9 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
       this.wf.setPersona(option.persona);
     }
     if (step.field) {
-      this.wf.setField(step.field as keyof UserProfile, option.value);
+      // educationLevels muss immer ein Array sein
+      const val = step.field === 'educationLevels' ? [option.value] : option.value;
+      this.wf.setField(step.field as keyof UserProfile, val);
     }
     // OEH-URI in das passende Profil-Feld schreiben
     if (option.uri) {
@@ -250,30 +459,113 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
 
     const profile = this.wf.profile();
     const persona = this.config.getPersona(profile.persona)!;
-    const mcpCfg = this.boerdiConfig!.mcp;
 
     this.chatHistory.push({ role: 'user', content: text });
 
     try {
-      // MCP als Tool für den LLM anbieten
       const tools: LlmTool[] = [
         {
           type: 'function',
           function: {
-            name: 'search_educational_content',
-            description: 'Sucht Bildungsinhalte und Lernmaterialien auf WirLernenOnline.de / MCP-Server',
+            name: 'search_wlo_collections',
+            description: 'Sucht Themenseiten/Sammlungen auf WirLernenOnline.de. NUR für Themenrecherche (Sammlungen, Themenseiten, Lernpfade). NICHT für spezifische Inhaltstypen wie Videos oder Arbeitsblätter!',
             parameters: {
               type: 'object',
               properties: {
-                query: { type: 'string', description: 'Suchbegriff oder Thema' },
+                query: { type: 'string', description: 'Suchbegriff, z.B. "Klimawandel" oder "Algebra"' },
+                maxResults: { type: 'number', description: 'Max. Ergebnisse (1-5)' },
               },
               required: ['query'],
             },
           },
         },
+        {
+          type: 'function',
+          function: {
+            name: 'search_wlo_content',
+            description: 'Sucht konkrete Lernmaterialien auf WirLernenOnline.de. Nutze dieses Tool wenn der Nutzer nach spezifischen Inhaltstypen fragt: Videos, Arbeitsblätter, PDFs, interaktive Übungen, Erklärvideos, Aufgaben, Materialien.',
+            parameters: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Suchbegriff' },
+                maxResults: { type: 'number', description: 'Max. Ergebnisse (1-8)' },
+              },
+              required: ['query'],
+            },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'get_collection_contents',
+            description: 'Ruft die Inhalte (Lernmaterialien oder Untersammlungen) einer WLO-Sammlung anhand der nodeId ab.',
+            parameters: {
+              type: 'object',
+              properties: {
+                nodeId: { type: 'string', description: 'NodeId der Sammlung' },
+                contentFilter: { type: 'string', enum: ['files', 'folders', 'both'], description: '"files" für Materialien, "folders" für Untersammlungen' },
+                maxResults: { type: 'number', description: 'Max. Ergebnisse' },
+              },
+              required: ['nodeId'],
+            },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'get_node_details',
+            description: 'Ruft Detailmetadaten, optionalen Volltext und Eltern-Sammlungen für eine WLO-NodeId ab.',
+            parameters: {
+              type: 'object',
+              properties: {
+                nodeId: { type: 'string', description: 'NodeId des Inhalts oder der Sammlung' },
+                includeTextContent: { type: 'boolean', description: 'Gespeicherten Volltext abrufen' },
+                includeParents: { type: 'boolean', description: 'Eltern-Sammlungen abrufen' },
+              },
+              required: ['nodeId'],
+            },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'get_wirlernenonline_info',
+            description: 'Infos von WirLernenOnline (WLO) – OER-Portal. Nutze bei: WLO, WirLernenOnline, OER, Fachportale, Qualitätssicherung, Mitmachen, Fachredaktion, Informatik, Deutsch, Medienbildung, Nachhaltigkeit, ComeIn.',
+            parameters: { type: 'object', properties: { path: { type: 'string', description: 'Unterseite, z.B. "/fachportale/informatik"' } } },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'get_edu_sharing_network_info',
+            description: 'Infos von edu-sharing-network.org – Community & Vernetzung. Nutze bei: edu-sharing Vernetzung, JOINTLY, ITsJOINTLY, BIRD, Bildungsraum Digital, Hackathon, OER-Sommercamp.',
+            parameters: { type: 'object', properties: { path: { type: 'string', description: 'Unterseite' } } },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'get_edu_sharing_product_info',
+            description: 'Infos von edu-sharing.com – Software/Produkt. Nutze bei: edu-sharing Produkt, Repository, Suchmaschine, Moodle Integration, Cloudspeicher, Plugins, Dokumentation, Demo.',
+            parameters: { type: 'object', properties: { path: { type: 'string', description: 'Unterseite' } } },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'get_metaventis_info',
+            description: 'Infos von metaventis.com – Unternehmen hinter edu-sharing. Nutze bei: metaVentis, Schulcloud, IDM, Autoren-Lösung, F&E, Firmenwissen und E-Learning.',
+            parameters: { type: 'object', properties: { path: { type: 'string', description: 'Unterseite' } } },
+          },
+        },
       ];
 
-      let choice = await this.llm.chatWithTools(this.chatHistory, persona, tools, 0.7);
+      const toolRoutingRules = `## Tool-Routing-Regeln (strikt einhalten)
+- search_wlo_content STATT search_wlo_collections wenn der Nutzer nach konkreten Inhaltstypen fragt (Videos, Arbeitsblätter, PDFs, Übungen, Erklärvideos, Aufgaben, interaktive Materialien).
+- get_wirlernenonline_info (oder get_edu_sharing_*) STATT search_wlo_collections wenn der Nutzer nach WirLernenOnline, edu-sharing oder metaVentis als Projekt/Plattform/Website fragt (z.B. "Was ist WLO?", "Wie funktioniert edu-sharing?").
+- search_wlo_collections nur für inhaltliche Themensuche (z.B. "Klimawandel", "Bruchrechnung").`;
+
+      let choice = await this.llm.chatWithTools(this.chatHistory, persona, tools, 0.7, toolRoutingRules);
 
       // Tool-Call-Loop
       while (choice.finish_reason === 'tool_calls') {
@@ -283,16 +575,30 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
         const toolResults: LlmMessage[] = [];
         for (const tc of toolCalls) {
           const args = JSON.parse(tc.function.arguments || '{}');
-          const query = args.query ?? text;
-          // MCP-Nutzung im Chat sichtbar machen
-          const sid = this.wf.addStatusMessage(`🔍 MCP-Tool: "${query}" …`, 'searching');
-          const result = await this.mcp.search(query, mcpCfg.searchTool);
-          this.wf.updateStatus(sid, `✅ MCP: "${query}"`, this.mcp.lastCallRaw || result);
-          toolResults.push({ role: 'user', content: `[Tool-Ergebnis für "${query}"]: ${result}` });
+          const toolName = tc.function.name;
+          const sid = this.wf.addStatusMessage(`🔍 WLO-Tool: ${toolName} …`, 'searching');
+          try {
+            const mcpResult = await this.mcp.callTool(toolName, args);
+            const resultText = mcpResult.content.filter(c => c.type === 'text').map(c => c.text ?? '').join('\n\n');
+            this.wf.updateStatus(sid, `✅ ${toolName}`, this.mcp.lastCallRaw || resultText);
+            // Karten extrahieren für alle Tool-Typen die Nodes zurückgeben
+            const isCardTool = toolName === 'search_wlo_collections'
+              || toolName === 'search_wlo_content'
+              || toolName === 'get_collection_contents';
+            if (isCardTool && resultText) {
+              const toolDefault = toolName === 'search_wlo_content' ? 'content' : 'collection';
+              const cards = this.parseWloCards(resultText, toolDefault);
+              if (cards.length) this.wf.setMessageCards(loadMsg.id, cards);
+            }
+            toolResults.push({ role: 'user', content: `[${toolName}-Ergebnis]: ${resultText}` });
+          } catch (toolErr: any) {
+            this.wf.updateStatus(sid, `❌ ${toolName}: ${toolErr.message}`);
+            toolResults.push({ role: 'user', content: `[${toolName}-Fehler]: ${toolErr.message}` });
+          }
         }
 
         this.chatHistory.push(...toolResults);
-        choice = await this.llm.chatWithTools(this.chatHistory, persona, tools, 0.7);
+        choice = await this.llm.chatWithTools(this.chatHistory, persona, tools, 0.7, toolRoutingRules);
       }
 
       const reply = choice.message.content ?? '(keine Antwort)';
