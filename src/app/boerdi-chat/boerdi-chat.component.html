@@ -113,6 +113,11 @@
                     class="card-btn card-btn--primary"
                     (click)="$event.preventDefault(); $event.stopPropagation(); browseCollection(card.nodeId, card.title, 0)"
                   >📋 Inhalte</button>
+                  <button
+                    class="card-btn card-btn--secondary"
+                    [disabled]="wf.isLoading()"
+                    (click)="$event.preventDefault(); $event.stopPropagation(); generateLearningPath(card.nodeId, card.title)"
+                  >🗺️ Lernpfad</button>
                 </div>
               </div>
             </a>

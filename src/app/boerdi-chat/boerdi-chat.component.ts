@@ -351,6 +351,95 @@ Fasse kurz in 2–3 Sätzen zusammen, was gefunden wurde. Wenn du Titel von Samm
     }
   }
 
+  async generateLearningPath(nodeId: string, title: string): Promise<void> {
+    const statusId = this.wf.addStatusMessage(`🗺️ Lade Inhalte für Lernpfad „${title}" …`, 'searching');
+    this.wf.isLoading.set(true);
+    const loadMsg = this.wf.addLoadingMessage();
+
+    try {
+      // Fetch up to 16 contents for a representative selection
+      const result = await this.mcp.callTool('get_collection_contents', {
+        nodeId,
+        contentFilter: 'files',
+        maxResults: 16,
+        skipCount: 0,
+      });
+      const rawText = (result.content as any[])
+        .filter(c => c.type === 'text').map(c => c.text ?? '').join('\n\n');
+      const cards = this.parseWloCards(rawText, 'content');
+
+      if (cards.length === 0) {
+        this.wf.updateStatus(statusId, `❌ Keine Inhalte in „${title}" gefunden`);
+        this.wf.replaceMessage(loadMsg.id, `Leider keine Inhalte in der Sammlung „${title}" gefunden.`);
+        return;
+      }
+
+      this.wf.updateStatus(statusId, `✅ ${cards.length} Inhalte geladen – KI erstellt Lernpfad …`, rawText);
+
+      const profile = this.wf.profile();
+      const persona = this.config.getPersona(profile.persona)!;
+
+      const contentList = cards.map((c, i) => {
+        const url = c.url || c.wloUrl;
+        const lines = [
+          `${i + 1}. ${c.title}`,
+          c.learningResourceTypes.length ? `   Typ: ${c.learningResourceTypes.join(', ')}` : '',
+          c.educationalContexts.length   ? `   Zielgruppe: ${c.educationalContexts.join(', ')}` : '',
+          c.description                  ? `   Beschreibung: ${c.description.slice(0, 150)}` : '',
+          url                            ? `   URL: ${url}` : '',
+        ].filter(Boolean);
+        return lines.join('\n');
+      }).join('\n\n');
+
+      const learnerInfo = [
+        profile.role             ? `Rolle: ${profile.role}` : '',
+        profile.educationLevels.length ? `Bildungsstufe: ${profile.educationLevels.join(', ')}` : '',
+        profile.interest         ? `Thema: ${profile.interest}` : '',
+      ].filter(Boolean).join(' | ') || 'allgemeine Lernende';
+
+      const prompt: LlmMessage = {
+        role: 'user',
+        content: `Erstelle einen pädagogisch strukturierten **Lernpfad** zum Thema „${title}" für: ${learnerInfo}.
+
+Verfügbare Inhalte aus der WLO-Sammlung (${cards.length} Elemente):
+
+${contentList}
+
+**Aufgabe:** Wähle die geeignetsten Inhalte aus und ordne sie in einem sinnvollen Lernpfad an. Berücksichtige:
+- Inhaltstypen (z.B. Video für Einstieg, Arbeitsblatt für Übung, interaktives Medium für Vertiefung)
+- Passende Zielgruppe je Schritt
+- Logischer Aufbau: Einstieg → Verstehen → Üben → Vertiefen/Anwenden
+
+**Format (Markdown, auf Deutsch):**
+
+Beginne mit einem **Überblick**-Block:
+> **Lernpfad: ${title}**
+> Kurze Beschreibung des Lernziels (1–2 Sätze).
+> **Schritte auf einen Blick:** Bullet-Liste der 3–5 wichtigsten Stationen
+
+Dann die einzelnen Schritte als nummerierte Abschnitte (### Schritt N: Titel):
+- Lernziel des Schritts (1 Satz, kursiv)
+- Verlinkter Inhalt: [Titel des Inhalts](URL)
+- 1–2 Sätze Begründung, warum dieser Inhalt hier passt
+
+Schließe mit einem kurzen **Tipp für Lehrende** oder **Weiterführende Ideen** ab.
+
+Wichtig: Verlinke **alle verwendeten Inhalte** als [Titel](URL). Nutze ausschließlich Inhalte aus der obigen Liste.`,
+      };
+
+      const learningPath = await this.llm.chat([...this.chatHistory, prompt], persona, 0.7);
+      this.chatHistory.push(prompt, { role: 'assistant', content: learningPath });
+      this.wf.replaceMessage(loadMsg.id, learningPath);
+
+    } catch (e: any) {
+      this.wf.updateStatus(statusId, `❌ Fehler: ${e.message}`);
+      this.wf.replaceMessage(loadMsg.id, `❌ Fehler beim Erstellen des Lernpfads: ${(e as Error).message}`);
+    } finally {
+      this.wf.isLoading.set(false);
+      this.shouldScrollToBottom = true;
+    }
+  }
+
   private async handleChatStep(step: FlowStep): Promise<void> {
     const text = this.config.getMessage(step, this.wf.profile().persona);
     this.wf.addBotMessage(text, undefined, step.id);

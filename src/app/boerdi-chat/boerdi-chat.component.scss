@@ -613,6 +613,13 @@ $radius:     14px;
     &:hover { background: #bae6fd; }
   }
 
+  &--secondary {
+    background: #dcfce7;
+    color: #15803d;
+    &:hover { background: #bbf7d0; }
+    &:disabled { opacity: .45; cursor: default; }
+  }
+
   &--more {
     background: #f1f5f9;
     color: #334155;
