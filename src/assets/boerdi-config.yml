@@ -1,234 +1,34 @@
 # ============================================================
-# BOERDI – Chatbot-Konfiguration für WirLernenOnline.de
+# BOERDI – Flow-Registry
 # ============================================================
-# Diese Datei kann von Admins ohne Programmierkenntnisse angepasst werden.
-# YAML-Syntax: Einrückungen mit 2 Leerzeichen, keine Tabs.
-# ============================================================
-
-# ── Bot-Identität ────────────────────────────────────────────
-bot:
-  name: Boerdi
-  avatar: "🦉"
-  tagline: "Dein persönlicher Guide für WirLernenOnline.de"
-
-# ── API-Konfiguration ────────────────────────────────────────
-# API-Key: wird aus der Umgebungsvariable B_API_KEY geladen (generate-env.mjs).
-# NICHT direkt hier eintragen – in Produktion einen Proxy verwenden.
-# Lokale Entwicklung: Proxy-Pfad (proxy.conf.json leitet an B-API weiter)
-api:
-  baseUrl: "/bapi-proxy"
-  model: "gpt-4.1-mini"     # ← Modell hier ändern, z.B. gpt-4o, gpt-4-turbo
-  apiKeyHeader: "X-API-KEY"
-
-# ── MCP-Server ───────────────────────────────────────────────
-# Lokale Entwicklung: Proxy-Pfad verwenden (proxy.conf.json)
-# Produktion / WLO-MCP: vollständige URL des WLO-Inhalts-MCP eintragen
-#   z.B. serverUrl: "https://mcp.wirlernenonline.de/api/mcp"
-mcp:
-  serverUrl: "https://wlo-mcp-server.vercel.app/mcp"
-  searchTool: "search_wlo_collections"  # Sammlungen/Themenseiten suchen
-  fetchTool: "fetch_web_content"         # Projektwebseiten abrufen
-
-# ── Personas ─────────────────────────────────────────────────
-# Jede Persona wird durch eine Markdown-Datei in assets/personas/ beschrieben.
-# Admins können die .md-Dateien direkt bearbeiten um Ton und Verhalten anzupassen.
-# uri: OEH-Vokabular http://w3id.org/openeduhub/vocabs/intendedEndUserRole/
-personas:
-  learner:
-    label: "Lerner/in"
-    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/learner"
-    personaFile: "assets/personas/learner.md"
-
-  teacher:
-    label: "Lehrer/in"
-    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/teacher"
-    personaFile: "assets/personas/teacher.md"
-
-  counsellor:
-    label: "Berater/in"
-    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/counsellor"
-    personaFile: "assets/personas/counsellor.md"
-
-  parent:
-    label: "Eltern"
-    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/parent"
-    personaFile: "assets/personas/parent.md"
-
-  author:
-    label: "Autor/in"
-    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/author"
-    personaFile: "assets/personas/author.md"
-
-  manager:
-    label: "Verwaltung"
-    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/manager"
-    personaFile: "assets/personas/manager.md"
-
-  other:
-    label: "andere"
-    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/other"
-    personaFile: "assets/personas/other.md"
-
-# ── Gesprächs-Flow ───────────────────────────────────────────
-# Schritttypen:
-#   message    – Bot sendet Nachricht, kein Input nötig
-#   choice     – User wählt eine Option (Einzelauswahl, Buttons)
-#   multiChoice – User wählt mehrere Optionen (Checkboxen)
-#   freetext   – User tippt freien Text
-#   mcp_search – Bot ruft MCP-Server auf (kein User-Input)
-#   chat       – Freier Chat-Modus mit LLM + MCP
+# Diese Datei ist die zentrale Einstiegsdatei für Boerdi.
+# Sie enthält NUR die Liste der verfügbaren Flows.
+# Jeder Flow liegt als eigenständige config.yml in seinem Unterordner:
+#   assets/flows/{flow-id}/config.yml
+#   assets/flows/{flow-id}/personas/*.md
 #
-# Felder in Optionen:
-#   label:   Angezeigter Text
-#   value:   Interner Wert (entspricht OEH-Vokabel-Kurzname)
-#   uri:     Vollständige OEH-URI (wird für spätere API-Aufrufe durchgereicht)
-#   persona: Aktiviert diese Persona wenn gewählt
-#   primary: Hebt die Option hervor
+# Optionen:
+#   configFile:  Pfad zur YAML-Konfiguration des Flows
+#   default:     true → Flow wird direkt gestartet (kein Auswahlscreen)
+#                false/leer → Flow erscheint im Auswahlscreen
+#
+# BoerdiFlowStudio-Export:
+#   ZIP entpacken nach assets/flows/{slug}/
+#   Dann hier einen neuen Eintrag hinzufügen.
+# ============================================================
 
-flow:
-  - id: welcome
-    type: message
-    message: |
-      Hi, ich bin **Boerdi** 🦉 und möchte dich bei der Suche nach Bildungsressourcen unterstützen!
+flows:
+  - id: boerdi-wlo
+    name: "🦉 Boerdi – WLO Klassisch"
+    description: "Geführter Flow · 7 Rollen · 12 Bildungsstufen · MCP-Suche · Loop-Navigation"
+    configFile: "assets/flows/boerdi-wlo/config.yml"
 
-      Auf **WirLernenOnline.de** findest du tausende freie Bildungsmaterialien (OER) –
-      und ich helfe dir, genau das Richtige für dich zu entdecken. 👇
-    next: role
+  - id: wlo-website-bot
+    name: "🌐 WLO Website Bot (W-00)"
+    description: "KI-Intent-Weiche · 5 Zielgruppen · Soft-Probing · Handoff"
+    configFile: "assets/flows/wlo-website-bot/config.yml"
 
-  # ── Zielgruppe ──────────────────────────────────────────────
-  # Basiert auf: http://w3id.org/openeduhub/vocabs/intendedEndUserRole/
-  - id: role
-    type: choice
-    field: role
-    message: "Für wen suchst du Materialien? Das hilft mir, besser auf dich einzugehen."
-    options:
-      - label: "🎒 Ich lerne (Schüler/in, Student/in)"
-        value: learner
-        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/learner"
-        persona: learner
-        primary: true
-      - label: "📚 Ich unterrichte (Lehrer/in)"
-        value: teacher
-        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/teacher"
-        persona: teacher
-      - label: "👪 Als Elternteil / Erziehungsberechtigte*r"
-        value: parent
-        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/parent"
-        persona: parent
-      - label: "🤝 Als Berater/in"
-        value: counsellor
-        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/counsellor"
-        persona: counsellor
-      - label: "✏️ Als Autor/in (Materialerstellung)"
-        value: author
-        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/author"
-        persona: author
-      - label: "🏛️ Verwaltung / Schulleitung"
-        value: manager
-        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/manager"
-        persona: manager
-      - label: "🔍 Anderes / Nur erkunden"
-        value: other
-        uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/other"
-        persona: other
-    next: educationLevel
-
-  # ── Bildungsstufe ────────────────────────────────────────────
-  # Basiert auf: http://w3id.org/openeduhub/vocabs/educationalContext/
-  - id: educationLevel
-    type: choice
-    field: educationLevels
-    personaMessages:
-      learner: "In welcher Schulstufe oder welchem Bildungsbereich lernst du gerade?"
-      teacher: "Für welche Bildungsstufen unterrichten Sie?"
-      counsellor: "Auf welche Bildungsstufen bezieht sich Ihre Beratungstätigkeit?"
-      parent: "Welche Schulstufe besucht Ihr Kind?"
-      author: "Für welche Bildungsstufen erstellen Sie Materialien?"
-      manager: "Welche Bildungsstufen umfasst Ihre Einrichtung?"
-      other: "Welche Bildungsbereiche interessieren dich?"
-    options:
-      - label: "🧒 Elementarbereich"
-        value: elementarbereich
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/elementarbereich"
-      - label: "🏫 Schule (allgemein)"
-        value: schule
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/schule"
-      - label: "📗 Primarstufe (Grundschule)"
-        value: grundschule
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/grundschule"
-      - label: "� Sekundarstufe I (Kl. 5–10)"
-        value: sekundarstufe_1
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/sekundarstufe_1"
-      - label: "📙 Sekundarstufe II (Kl. 11–13)"
-        value: sekundarstufe_2
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/sekundarstufe_2"
-      - label: "� Hochschule"
-        value: hochschule
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/hochschule"
-      - label: "🔧 Berufliche Bildung"
-        value: berufliche_bildung
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/berufliche_bildung"
-      - label: "📈 Fortbildung"
-        value: fortbildung
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/fortbildung"
-      - label: "🌱 Erwachsenenbildung"
-        value: erwachsenenbildung
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/erwachsenenbildung"
-      - label: "🌟 Förderschule"
-        value: foerderschule
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/foerderschule"
-      - label: "💻 Fernunterricht"
-        value: fernunterricht
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/fernunterricht"
-      - label: "🔓 Informelles Lernen"
-        value: informelles_lernen
-        uri: "http://w3id.org/openeduhub/vocabs/educationalContext/informelles_lernen"
-    next: interest
-
-  - id: interest
-    type: freetext
-    field: interest
-    personaMessages:
-      learner: "Super! 🎉 Für welches **Thema** suchst du gerade Lernmaterialien?"
-      teacher: "Gut! Für welches **Thema** suchen Sie Unterrichtsmaterialien?"
-      counsellor: "Zu welchem **Thema** suchen Sie Beratungs- oder Fördermaterial?"
-      parent: "Wobei möchtest du dein Kind unterstützen? Welches **Thema**?"
-      author: "Zu welchem **Thema** suchen Sie Quellen oder Inspiration?"
-      manager: "Zu welchem **Thema** suchen Sie Ressourcen für Ihre Einrichtung?"
-      other: "Für welches **Thema** soll ich suchen?"
-    suggestions:
-      - "Addition und Subtraktion"
-      - "Klimawandel und Nachhaltigkeit"
-      - "Demokratie und Gesellschaft"
-      - "Bruchrechnung"
-      - "Deutsch Grammatik"
-      - "Programmieren lernen"
-      - "Englisch Grundschule"
-      - "Biologie Zelle"
-      - "Geschichte Zweiter Weltkrieg"
-      - "Physik Mechanik"
-    placeholder: "z.B. Mathematik Bruchrechnung, Klimawandel, Fotosynthese …"
-    next: search
-
-  - id: search
-    type: mcp_search
-    message: "Ich suche gerade passende Inhalte für dich …"
-    next: chat
-
-  - id: chat
-    type: chat
-    suggestions:
-      - "Zeig mir die Inhalte dieser Sammlung"
-      - "Gibt es Untersammlungen dazu?"
-      - "Suche nach einem anderen Thema"
-      - "Was ist WirLernenOnline?"
-      - "Welche Materialien gibt es für Anfänger?"
-      - "Gibt es Videos dazu?"
-    personaMessages:
-      learner: "Ich habe passende Themenseiten für dich gefunden! 😊 Klicke auf eine Kachel oder stelle mir weitere Fragen – z.B. zu den Inhalten einer Sammlung."
-      teacher: "Hier sind passende Sammlungen (Themenseiten). Möchten Sie die Inhalte einer Sammlung sehen, oder haben Sie weitere Fragen?"
-      counsellor: "Hier sind passende Sammlungen zum Thema. Wie kann ich weiter helfen?"
-      parent: "Ich habe passende Themenseiten gefunden. Soll ich die Inhalte anzeigen oder ein anderes Thema erkunden?"
-      author: "Hier sind thematisch passende Sammlungen. Möchten Sie mehr dazu?"
-      manager: "Hier sind relevante Sammlungen für Ihre Einrichtung. Wie kann ich weiter helfen?"
-      other: "Hier sind die gefundenen Themenseiten. Wie kann ich weiter helfen?"
+  - id: wlo-agent
+    name: "🤖 WLO Agent (1-Knoten)"
+    description: "1-Knoten Agent · Alle MCP-Tools · Gesprächsführung per System-Prompt · 5 Zielgruppen"
+    configFile: "assets/flows/wlo-agent/config.yml"

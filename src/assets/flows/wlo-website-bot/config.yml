@@ -1,0 +1,206 @@
+# ============================================================
+# BOERDI – W-00 WLO Website Bot
+# ============================================================
+# Eigenständige Flow-Konfiguration – wird über assets/boerdi-config.yml
+# (Registry) referenziert. Persona-Dateien liegen relativ zu dieser Datei
+# im Ordner personas/ – kein Konflikt mit anderen Flows möglich.
+# ============================================================
+
+bot:
+  name: WLO-Assistent
+  avatar: "🌐"
+  tagline: "Dein Assistent auf WirLernenOnline.de"
+
+api:
+  baseUrl: "/bapi-proxy"
+  model: "gpt-4.1-mini"
+  apiKeyHeader: "X-API-KEY"
+
+mcp:
+  serverUrl: "https://wlo-mcp-server.vercel.app/mcp"
+  searchTool: "search_wlo_collections"
+  fetchTool: "fetch_web_content"
+
+# ── Personas (5 Zielgruppen W-00) ────────────────────────────
+# personaFile-Pfade sind RELATIV zu dieser Datei (→ personas/*.md)
+personas:
+  wlo_lk:
+    label: "Lehrkraft"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/teacher"
+    personaFile: "personas/wlo_lk.md"
+
+  wlo_sl:
+    label: "Schüler:in"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/learner"
+    personaFile: "personas/wlo_sl.md"
+
+  wlo_pol:
+    label: "Politikerin / Bildungspolitik"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/other"
+    personaFile: "personas/wlo_pol.md"
+
+  wlo_press:
+    label: "Presse / Journalist:in"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/other"
+    personaFile: "personas/wlo_press.md"
+
+  wlo_red:
+    label: "Redakteur:in"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/author"
+    personaFile: "personas/wlo_red.md"
+
+  other:
+    label: "Andere"
+    uri: "http://w3id.org/openeduhub/vocabs/intendedEndUserRole/other"
+    personaFile: "personas/other.md"
+
+# ── Gesprächs-Flow W-00 ───────────────────────────────────────
+# Eröffnung → Offene Frage → KI-Intent-Weiche → Zielgruppenspezifischer Chat
+flow:
+  - id: w00_welcome
+    type: message
+    message: |
+      Hallo! 👋 Ich bin dein Assistent auf **WirLernenOnline.de**.
+
+      Hier findest du tausende freie Bildungsmaterialien (OER) –
+      ich helfe dir, genau das Richtige zu finden.
+    next: w00_open_q
+
+  - id: w00_open_q
+    type: input
+    field: intent_text
+    message: "Was bringt dich heute her? Bist du z.B. Lehrkraft, Schüler:in – oder hast du einen anderen Hintergrund?"
+    placeholder: 'z.B. „Ich unterrichte Mathe Klasse 7" oder „Ich suche was über Klimawandel"'
+    suggestions:
+      - "Ich bin Lehrkraft"
+      - "Ich lerne gerade"
+      - "Ich möchte mehr über WLO erfahren"
+      - "Ich schreibe über WLO"
+    next: w00_weiche
+
+  - id: w00_weiche
+    type: gateway
+    splitBy: ai_intent
+    message: "Was bringt dich heute her? Bist du z.B. Lehrkraft, Schüler:in – oder hast du einen anderen Hintergrund?"
+    branches:
+      - label: Lehrkraft
+        intentDescription: "Lehrkraft, Lehrerin, Lehrer, unterrichtet, Unterrichtsmaterial, Klasse, Fach, Schule, Unterricht."
+        personaId: wlo_lk
+        next: w00_lk_topic
+      - label: "Schüler:in"
+        intentDescription: "Schüler:in, Student:in, lernt selbst, Lernmaterial, Hausaufgaben, Prüfung."
+        personaId: wlo_sl
+        next: w00_sl_topic
+      - label: "Politikerin"
+        intentDescription: "Bildungspolitik, Ministerium, Verwaltung, Behörde, was ist WLO, Plattform erklären, Überblick."
+        personaId: wlo_pol
+        next: w00_pol
+      - label: "Presse"
+        intentDescription: "Journalist:in, Artikel, Bericht, Fakten, Zahlen, Pressekontakt, recherchiert über WLO."
+        personaId: wlo_press
+        next: w00_press
+      - label: "Redakteur:in"
+        intentDescription: "Redakteur:in, Fachgesellschaft, Organisation, Inhalte einstellen, Zugang beantragen, Mitmachen."
+        personaId: wlo_red
+        next: w00_red
+    default: w00_def
+
+  - id: w00_lk_topic
+    type: input
+    field: topic
+    personaMessages:
+      wlo_lk: "Super, schön dass du hier bist! 👩‍🏫\n\nFür welches **Fach** oder **Thema** suchen Sie Unterrichtsmaterialien – und für welche Klasse ungefähr?"
+    message: "Für welches Fach oder Thema suchst du Materialien?"
+    placeholder: "z.B. Klimawandel, Bruchrechnung, Geschichte Klasse 8 …"
+    suggestions:
+      - "Klimawandel"
+      - "Bruchrechnung"
+      - "Demokratie"
+      - "Geschichte Mittelalter"
+    next: w00_lk
+
+  - id: w00_lk
+    type: chat
+    personaMessages:
+      wlo_lk: "Ich suche jetzt passende Materialien für Sie auf WirLernenOnline.de! 🔍"
+    message: "Ich suche jetzt passende Materialien auf WirLernenOnline.de! 🔍"
+    suggestions:
+      - "Zeig mir die Inhalte einer Sammlung"
+      - "Gibt es auch Videos dazu?"
+      - "Anderes Thema suchen"
+      - "Was ist WirLernenOnline?"
+
+  - id: w00_sl_topic
+    type: input
+    field: topic
+    personaMessages:
+      wlo_sl: "Cool, da helfe ich dir! 🎒\n\nWelches **Thema** oder **Fach** interessiert dich?"
+    message: "Welches Thema interessiert dich?"
+    placeholder: "z.B. Klimawandel, Bruchrechnung …"
+    suggestions:
+      - "Klimawandel"
+      - "Bruchrechnung"
+      - "Demokratie"
+      - "Englisch Grammatik"
+    next: w00_sl
+
+  - id: w00_sl
+    type: chat
+    personaMessages:
+      wlo_sl: "Ich suche jetzt passende Materialien auf WirLernenOnline.de! 🔍"
+    message: "Ich suche jetzt passende Materialien auf WirLernenOnline.de! 🔍"
+    suggestions:
+      - "Lernmaterialien zeigen"
+      - "Videos suchen"
+      - "Anderes Thema"
+      - "Was ist WirLernenOnline?"
+
+  - id: w00_pol
+    type: chat
+    personaMessages:
+      wlo_pol: "Willkommen! 🏛️\n\n**WirLernenOnline.de (WLO)** ist Deutschlands zentrale OER-Plattform – kostenlos, qualitätsgesichert, für alle Bildungsbereiche.\n\nWie kann ich Ihnen weiterhelfen?"
+    message: "Willkommen! 🏛️\n\n**WirLernenOnline.de (WLO)** ist Deutschlands zentrale OER-Plattform – kostenlos, qualitätsgesichert, für alle Bildungsbereiche.\n\nWie kann ich Ihnen weiterhelfen?"
+    suggestions:
+      - "Was leistet WLO?"
+      - "Wer steht hinter WLO?"
+      - "Wie viele Materialien gibt es?"
+      - "Wie kann man mitmachen?"
+
+  - id: w00_press
+    type: chat
+    personaMessages:
+      wlo_press: "Guten Tag! 📰\n\n**WirLernenOnline.de** ist die zentrale OER-Plattform im deutschen Bildungswesen. Ich helfe Ihnen mit Fakten und Hintergrundinformationen."
+    message: "Guten Tag! 📰\n\n**WirLernenOnline.de** ist die zentrale OER-Plattform im deutschen Bildungswesen. Ich helfe Ihnen mit Fakten und Hintergrundinformationen."
+    suggestions:
+      - "Fakten zur Plattform"
+      - "Nutzungszahlen"
+      - "Pressekontakt"
+      - "Geschichte und Träger von WLO"
+
+  - id: w00_red
+    type: handoff
+    handoffTarget: redaktion-onboarding
+    handoffMessage: "Super, dass du Inhalte auf WLO einbringen möchtest! 🎉\n\nIch leite dich jetzt zum Redaktionsprozess weiter. Dort erfährst du, wie du eine Fachredaktion beantragen oder bestehende Inhalte einbinden kannst."
+
+  # ── Default: Zielgruppen-Auswahl (Fallback wenn Intent unklar) ───────────────
+  # option.next springt direkt zu den Zielgruppen-Branches.
+  - id: w00_def
+    type: choice
+    message: "Kein Problem! 😊 Damit ich dir besser helfen kann – welche Beschreibung passt am besten zu dir?"
+    options:
+      - label: "👩‍🏫 Ich unterrichte / suche Unterrichtsmaterial"
+        value: lk
+        next: w00_lk_topic
+        primary: true
+      - label: "🎒 Ich lerne / suche Lernmaterial"
+        value: sl
+        next: w00_sl_topic
+      - label: "🏛️ Ich bin aus Politik oder Verwaltung"
+        value: pol
+        next: w00_pol
+      - label: "📰 Ich schreibe über WLO (Presse)"
+        value: press
+        next: w00_press
+      - label: "🔁 Nochmal von vorne eingeben"
+        value: restart
+        next: __restart

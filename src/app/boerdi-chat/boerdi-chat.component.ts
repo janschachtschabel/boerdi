@@ -53,10 +53,16 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
   // ── Flow Engine ───────────────────────────────────────────────────────────────
   async startFlow(): Promise<void> {
     this.wf.reset();
-    await this.processStep('welcome');
+    const cfg = this.config.get();
+    const startStepId = cfg.flowStart ?? cfg.flow[0]?.id ?? 'welcome';
+    await this.processStep(startStepId);
   }
 
   private async processStep(stepId: string): Promise<void> {
+    // ── Sonderwerte ────────────────────────────────────────────────────────────
+    if (stepId === '__restart') { await this.startFlow(); return; }
+    if (stepId === '__back')    { this.wf.goBack(); const prev = this.wf.currentStepId(); if (prev) await this.processStep(prev); return; }
+
     const step = this.config.getStep(stepId);
     if (!step) {
       console.warn('Unbekannter Step:', stepId);
@@ -70,9 +76,12 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
       case 'message':   await this.handleMessageStep(step); break;
       case 'choice':    await this.handleChoiceStep(step); break;
       case 'multiChoice': await this.handleMultiChoiceStep(step); break;
-      case 'freetext':  await this.handleFreetextStep(step); break;
+      case 'freetext':
+      case 'input':     await this.handleFreetextStep(step); break;
       case 'mcp_search': await this.handleMcpSearchStep(step); break;
       case 'chat':      await this.handleChatStep(step); break;
+      case 'gateway':   await this.handleGatewayStep(step); break;
+      case 'handoff':   await this.handleHandoffStep(step); break;
     }
   }
 
@@ -91,6 +100,7 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
       uri: o.uri,
       persona: o.persona,
       primary: o.primary,
+      next: o.next,
     }));
     this.wf.addBotMessage(text, options, step.id);
   }
@@ -441,9 +451,114 @@ Wichtig: Verlinke **alle verwendeten Inhalte** als [Titel](URL). Nutze ausschlie
   }
 
   private async handleChatStep(step: FlowStep): Promise<void> {
+    // Activate persona defined in dockedPersona (FlowStudio export)
+    if (step.dockedPersona?.mode === 'set' && step.dockedPersona.personaId) {
+      this.wf.setPersona(step.dockedPersona.personaId);
+    }
     const text = this.config.getMessage(step, this.wf.profile().persona);
     this.wf.addBotMessage(text, undefined, step.id);
     // Jetzt im freien Chat-Modus – weitere Nachrichten gehen durch sendChatMessage()
+  }
+
+  // ── Gateway ───────────────────────────────────────────────────────────────────
+
+  private async handleGatewayStep(step: FlowStep): Promise<void> {
+    const splitBy = step.splitBy ?? 'condition';
+
+    if (splitBy === 'ai_intent') {
+      // If a previous input step already collected the intent text, classify immediately.
+      const fieldKey = step.field ?? 'intent_text';
+      const existingText = String(this.wf.profile()[fieldKey] ?? '').trim();
+      if (existingText) {
+        await this.classifyIntentAndRoute(existingText, step);
+        return;
+      }
+      // Otherwise show the prompt and wait for user input (sendMessage handles it).
+      const msg = step.message ?? 'Wie kann ich dir weiterhelfen?';
+      this.wf.addBotMessage(msg, undefined, step.id);
+      return;
+    }
+
+    // Immediate routing (no user input needed):
+    const nextStepId = this.resolveGatewayBranch(step);
+    if (nextStepId) {
+      await this.processStep(nextStepId);
+    } else {
+      console.warn('Gateway: kein passender Zweig und kein Default für', step.id);
+    }
+  }
+
+  /** Evaluates condition/persona/intent branches and returns the next step id. */
+  private resolveGatewayBranch(step: FlowStep): string | null {
+    const profile = this.wf.profile();
+    const branches = step.branches ?? [];
+
+    for (const branch of branches) {
+      if (step.splitBy === 'condition') {
+        const fieldVal = (profile as Record<string, unknown>)[branch.field ?? ''];
+        const strVal = Array.isArray(fieldVal) ? fieldVal[0] : String(fieldVal ?? '');
+        const match = branch.operator === 'not_equals' ? strVal !== branch.value
+          : branch.operator === 'contains' ? strVal.includes(branch.value ?? '')
+          : strVal === branch.value;
+        if (match && branch.next) return branch.next;
+      } else if (step.splitBy === 'persona') {
+        if (profile.persona === branch.personaId && branch.next) return branch.next;
+      } else if (step.splitBy === 'intent') {
+        const lastInput = profile.intent_text ?? profile.interest ?? '';
+        const re = branch.intentPattern ? new RegExp(branch.intentPattern, 'i') : null;
+        if (re?.test(lastInput) && branch.next) return branch.next;
+      }
+    }
+    return step.default ?? null;
+  }
+
+  /** Called from sendMessage when current step is gateway+ai_intent.
+   *  Sends user text + branch descriptions to LLM, routes to matching branch. */
+  private async classifyIntentAndRoute(text: string, step: FlowStep): Promise<void> {
+    const branches = step.branches ?? [];
+    const loadMsg = this.wf.addLoadingMessage();
+    this.wf.isLoading.set(true);
+
+    try {
+      const branchList = branches.map((b, i) =>
+        `${i}: ${b.label}${b.intentDescription ? ' – ' + b.intentDescription : ''}`
+      ).join('\n');
+
+      const classifyPrompt: LlmMessage = {
+        role: 'user',
+        content: `Klassifiziere die folgende Nutzer-Eingabe in eine der Kategorien.\n\nNutzer-Eingabe: "${text}"\n\nKategorien:\n${branchList}\n\nAntworte NUR mit der Nummer (0, 1, 2, …) der passendsten Kategorie. Falls keine passt, antworte mit "default".`,
+      };
+
+      const persona = this.config.getPersona('other')!;
+      const answer = (await this.llm.chat([classifyPrompt], persona, 0)).trim();
+      const idx = parseInt(answer, 10);
+      const matched = !isNaN(idx) && idx >= 0 && idx < branches.length ? branches[idx] : null;
+      const nextId = matched?.next ?? step.default ?? null;
+
+      if (matched?.personaId) {
+        this.wf.setPersona(matched.personaId);
+      }
+
+      this.wf.removeMessage(loadMsg.id);
+
+      if (nextId) {
+        await this.processStep(nextId);
+      } else {
+        this.wf.replaceMessage(loadMsg.id, 'Ich konnte dein Anliegen leider nicht einordnen. Magst du es anders beschreiben?');
+      }
+    } catch (e: any) {
+      this.wf.replaceMessage(loadMsg.id, `❌ Fehler bei der Klassifizierung: ${(e as Error).message}`);
+    } finally {
+      this.wf.isLoading.set(false);
+      this.shouldScrollToBottom = true;
+    }
+  }
+
+  private async handleHandoffStep(step: FlowStep): Promise<void> {
+    const msg = step.handoffMessage ?? step.message ?? 'Du wirst jetzt weitergeleitet …';
+    this.wf.addBotMessage(msg, undefined, step.id);
+    await this.delay(400);
+    if (step.next) await this.processStep(step.next);
   }
 
   // ── User Interactions ─────────────────────────────────────────────────────────
@@ -472,7 +587,8 @@ Wichtig: Verlinke **alle verwendeten Inhalte** als [Titel](URL). Nutze ausschlie
     }
 
     await this.delay(200);
-    if (step.next) await this.processStep(step.next);
+    const nextId = option.next ?? step.next;
+    if (nextId) await this.processStep(nextId);
   }
 
   toggleMultiOption(msgId: string, value: string): void {
@@ -526,14 +642,24 @@ Wichtig: Verlinke **alle verwendeten Inhalte** als [Titel](URL). Nutze ausschlie
 
     const currentStep = this.config.getStep(this.wf.currentStepId());
 
-    if (currentStep?.type === 'freetext') {
+    if (currentStep?.type === 'freetext' || currentStep?.type === 'input') {
       this.wf.addUserMessage(text);
       if (currentStep.field) {
         this.wf.setField(currentStep.field as keyof UserProfile, text);
       }
       await this.delay(200);
       if (currentStep.next) await this.processStep(currentStep.next);
+    } else if (currentStep?.type === 'gateway' && currentStep.splitBy === 'ai_intent') {
+      this.wf.addUserMessage(text);
+      if (currentStep.field) {
+        this.wf.setField(currentStep.field as keyof UserProfile, text);
+      } else {
+        this.wf.setField('intent_text', text);
+      }
+      await this.delay(200);
+      await this.classifyIntentAndRoute(text, currentStep);
     } else if (currentStep?.type === 'chat') {
+      this.wf.addUserMessage(text);
       await this.sendChatMessage(text);
     } else {
       // Freitextantwort in allen anderen Kontexten
@@ -549,10 +675,15 @@ Wichtig: Verlinke **alle verwendeten Inhalte** als [Titel](URL). Nutze ausschlie
     const profile = this.wf.profile();
     const persona = this.config.getPersona(profile.persona)!;
 
+    // Determine allowed tools from dockedTools (undefined/empty = all tools)
+    const currentStep = this.config.getStep(this.wf.currentStepId());
+    const mcpDocked = currentStep?.dockedTools?.find(t => t.type === 'tool_mcp');
+    const allowedTools: string[] | null = mcpDocked?.tools?.length ? mcpDocked.tools : null;
+
     this.chatHistory.push({ role: 'user', content: text });
 
     try {
-      const tools: LlmTool[] = [
+      const allTools: LlmTool[] = [
         {
           type: 'function',
           function: {
@@ -648,6 +779,8 @@ Wichtig: Verlinke **alle verwendeten Inhalte** als [Titel](URL). Nutze ausschlie
           },
         },
       ];
+      // Apply tool filter from dockedTools (null = all tools allowed)
+      const tools = allowedTools ? allTools.filter(t => allowedTools.includes(t.function.name)) : allTools;
 
       const toolRoutingRules = `## Tool-Routing-Regeln (strikt einhalten)
 - search_wlo_content STATT search_wlo_collections wenn der Nutzer nach konkreten Inhaltstypen fragt (Videos, Arbeitsblätter, PDFs, Übungen, Erklärvideos, Aufgaben, interaktive Materialien).
@@ -733,7 +866,10 @@ Wichtig: Verlinke **alle verwendeten Inhalte** als [Titel](URL). Nutze ausschlie
 
   isFreetextActive(): boolean {
     const step = this.config.getStep(this.wf.currentStepId());
-    return step?.type === 'freetext' || step?.type === 'chat';
+    return step?.type === 'freetext'
+      || step?.type === 'input'
+      || step?.type === 'chat'
+      || (step?.type === 'gateway' && step.splitBy === 'ai_intent');
   }
 
   getPlaceholder(): string {

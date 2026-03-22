@@ -8,6 +8,8 @@ export interface UserProfile {
   educationLevels: string[];
   educationLevelUris: string[];  // OEH-URIs: educationalContext
   interest: string;
+  intent_text: string;           // Freitextantwort auf offene Einstiegsfrage (W-00 / ai_intent-Weiche)
+  [key: string]: unknown;        // Erlaubt dynamische Felder aus FlowStudio-Flows
 }
 
 export interface ChatMessage {
@@ -31,6 +33,7 @@ export interface MessageOption {
   uri?: string;      // OEH-URI
   persona?: string;
   primary?: boolean;
+  next?: string;     // per-Option Sprungziel ('__restart' | '__back' | stepId)
 }
 
 export interface MultiOption {
@@ -74,6 +77,7 @@ export class WorkflowService {
     educationLevels: [],
     educationLevelUris: [],
     interest: '',
+    intent_text: '',
   });
   readonly messages = signal<ChatMessage[]>([]);
   readonly isLoading = signal<boolean>(false);
@@ -99,7 +103,7 @@ export class WorkflowService {
     this.profile.set({
       role: 'other', persona: 'other',
       roleUri: 'http://w3id.org/openeduhub/vocabs/intendedEndUserRole/other',
-      educationLevels: [], educationLevelUris: [], interest: ''
+      educationLevels: [], educationLevelUris: [], interest: '', intent_text: '',
     });
     this.messages.set([]);
     this.isLoading.set(false);
@@ -164,6 +168,10 @@ export class WorkflowService {
     this.messages.update(msgs =>
       msgs.map(m => (m.id === id ? { ...m, content, isLoading: false, ...(wloCards ? { wloCards } : {}) } : m))
     );
+  }
+
+  removeMessage(id: string): void {
+    this.messages.update(msgs => msgs.filter(m => m.id !== id));
   }
 
   setMessageCards(id: string, wloCards: WloCard[]): void {
