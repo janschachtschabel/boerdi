@@ -11,11 +11,14 @@ export interface BotConfig {
   tagline: string;
 }
 
+export type LlmProvider = 'bapi' | 'openai';
+
 export interface ApiConfig {
   baseUrl: string;
   model: string;
   apiKeyHeader: string;
   apiKey?: string;
+  provider?: LlmProvider;
 }
 
 export interface McpConfig {
@@ -179,10 +182,13 @@ export class ConfigService {
     };
 
     // ── 2. api + mcp ──────────────────────────────────────────────────────────
+    const rawProvider = (doc.api as Record<string, unknown>)?.['provider'] as string | undefined;
+    const provider: LlmProvider | undefined = rawProvider === 'openai' ? 'openai' : rawProvider === 'bapi' ? 'bapi' : undefined;
     const api: ApiConfig = {
       baseUrl:      String(doc.api?.baseUrl      ?? '/bapi-proxy'),
       model:        String(doc.api?.model        ?? 'gpt-4.1-mini'),
       apiKeyHeader: String(doc.api?.apiKeyHeader ?? 'X-API-KEY'),
+      provider,
     };
     const mcp: McpConfig = {
       // FlowStudio puts mcpServerUrl in api section; Boerdi uses separate mcp.serverUrl

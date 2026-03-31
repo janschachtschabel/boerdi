@@ -39,7 +39,12 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
   async ngOnInit(): Promise<void> {
     this.boerdiConfig = await this.config.load();
     this.mcp.setServerUrl(this.boerdiConfig.mcp.serverUrl);
-    this.llm.configure(this.boerdiConfig.api, environment.apiKey ?? '');
+    this.llm.configure(this.boerdiConfig.api, {
+      apiKey: environment.apiKey ?? '',
+      bapiKey: (environment as any).bapiKey ?? '',
+      openaiKey: (environment as any).openaiKey ?? '',
+      envProvider: (environment as any).llmProvider ?? '',
+    });
     await this.startFlow();
   }
 

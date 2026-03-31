@@ -13,14 +13,21 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const envDir = join(__dirname, 'src', 'environments');
 
-const apiKey = process.env.B_API_KEY ?? process.env.OPENAI_API_KEY ?? '';
+const bapiKey = process.env.B_API_KEY ?? '';
+const openaiKey = process.env.OPENAI_API_KEY ?? '';
 
-if (!apiKey) {
+if (!bapiKey && !openaiKey) {
   console.warn(
     '⚠️  Weder B_API_KEY noch OPENAI_API_KEY ist gesetzt.\n' +
-    '   Auf Vercel: Environment Variable "B_API_KEY" in den Projekt-Einstellungen setzen.'
+    '   Auf Vercel: Environment Variable "B_API_KEY" und/oder "OPENAI_API_KEY" in den Projekt-Einstellungen setzen.'
   );
 }
+
+// Rückwärtskompatibel: apiKey = bevorzugt bapi, Fallback openai
+const apiKey = bapiKey || openaiKey;
+
+// Optional: Provider explizit wählen ('bapi' | 'openai' | '')
+const llmProvider = process.env.LLM_PROVIDER ?? '';
 
 mkdirSync(envDir, { recursive: true });
 
@@ -29,6 +36,9 @@ const prodContent = `// AUTO-GENERIERT von generate-env.mjs – nicht einchecken
 export const environment = {
   production: true,
   apiKey: '${apiKey}',
+  bapiKey: '${bapiKey}',
+  openaiKey: '${openaiKey}',
+  llmProvider: '${llmProvider}',
 };
 `;
 
@@ -37,10 +47,17 @@ const devContent = `// AUTO-GENERIERT von generate-env.mjs – nicht einchecken!
 export const environment = {
   production: false,
   apiKey: '${apiKey}',
+  bapiKey: '${bapiKey}',
+  openaiKey: '${openaiKey}',
+  llmProvider: '${llmProvider}',
 };
 `;
 
 writeFileSync(join(envDir, 'environment.ts'), prodContent, 'utf-8');
 writeFileSync(join(envDir, 'environment.development.ts'), devContent, 'utf-8');
 
-console.log('✅ environment.ts + environment.development.ts geschrieben' + (apiKey ? ' (API-Key gesetzt)' : ' (kein Key)'));
+console.log(
+  '✅ environment.ts + environment.development.ts geschrieben' +
+  (apiKey ? ' (API-Key gesetzt)' : ' (kein Key)') +
+  (llmProvider ? ` (Provider: ${llmProvider})` : '')
+);
