@@ -64,6 +64,7 @@ export interface WloCard {
   license: string;
   publisher: string;
   nodeType: 'collection' | 'content';
+  topicPageUrl?: string;
 }
 
 @Injectable({ providedIn: 'root' })

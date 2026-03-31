@@ -118,6 +118,14 @@
                     [disabled]="wf.isLoading()"
                     (click)="$event.preventDefault(); $event.stopPropagation(); generateLearningPath(card.nodeId, card.title)"
                   >🗺️ Lernpfad</button>
+                  <a
+                    *ngIf="card.topicPageUrl"
+                    class="card-btn card-btn--topic"
+                    [href]="card.topicPageUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    (click)="$event.stopPropagation()"
+                  >📄 Themenseite</a>
                 </div>
               </div>
             </a>

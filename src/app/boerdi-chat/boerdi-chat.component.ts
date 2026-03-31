@@ -150,6 +150,11 @@ export class BoerdiChatComponent implements OnInit, AfterViewChecked {
       const cards = this.parseWloCards(rawResults, cardDefault);
       const resultType = usedTool === 'search_wlo_content' ? 'einzelne Lernmaterialien' : 'Themenseiten (Sammlungen)';
 
+      const topicPageCards = cards.filter(c => !!c.topicPageUrl);
+      const topicPageHint = topicPageCards.length > 0
+        ? `\n\nWichtig: ${topicPageCards.length} Sammlung(en) haben eine kuratierte **Themenseite** (erkennbar am 📄-Button auf der Kachel). Themenseiten bieten eine übersichtliche, redaktionell aufbereitete Darstellung mit Swimlanes – ideal zum Stöbern. Erwähne das kurz und empfiehl die Themenseite, wenn passend.`
+        : '';
+
       const summaryPrompt: LlmMessage = {
         role: 'user',
         content: `Der Nutzer interessiert sich für: „${interest}". Bildungsstufe: ${levels.join(', ') || 'nicht angegeben'}. Rolle: ${profile.role}.
@@ -158,7 +163,7 @@ Gefundene ${resultType} aus WLO:
 
 ${rawResults}
 
-Fasse kurz in 2–3 Sätzen zusammen, was gefunden wurde. Wenn du Titel von Sammlungen/Inhalten erwähnst, verlinke sie mit der zugehörigen URL aus den Ergebnissen im Markdown-Format [Titel](URL). Hinweis: Die Kacheln sind bereits als visuelle Karten sichtbar – kein nochmaliges Auflisten nötig.`,
+Fasse kurz in 2–3 Sätzen zusammen, was gefunden wurde. Wenn du Titel von Sammlungen/Inhalten erwähnst, verlinke sie mit der zugehörigen URL aus den Ergebnissen im Markdown-Format [Titel](URL). Hinweis: Die Kacheln sind bereits als visuelle Karten sichtbar – kein nochmaliges Auflisten nötig.${topicPageHint}`,
       };
       const summary = await this.llm.chat([...this.chatHistory, summaryPrompt], persona, 0.6);
       this.chatHistory.push(summaryPrompt, { role: 'assistant', content: summary });
@@ -323,6 +328,7 @@ Fasse kurz in 2–3 Sätzen zusammen, was gefunden wurde. Wenn du Titel von Samm
         nodeType: get('Typ') === 'Sammlung' ? 'collection'
           : get('Typ') === 'Inhalt' ? 'content'
           : defaultType,
+        topicPageUrl: get('Themenseite') || undefined,
       } as WloCard;
     }).filter(c => !!c.nodeId && !!c.title);
   }
@@ -778,12 +784,29 @@ Wichtig: Verlinke **alle verwendeten Inhalte** als [Titel](URL). Nutze ausschlie
             parameters: { type: 'object', properties: { path: { type: 'string', description: 'Unterseite' } } },
           },
         },
+        {
+          type: 'function',
+          function: {
+            name: 'search_wlo_topic_pages',
+            description: 'Sucht Themenseiten auf WirLernenOnline. Themenseiten sind kuratierte Seiten mit Swimlanes, zugeschnitten auf Zielgruppen (Lehrkräfte, Lernende, Allgemein). Nutze bei: "Themenseite zu X", "kuratierte Seite", "Themenseiten für Lehrer". Kann nach Thema (query), Zielgruppe (targetGroup) oder Sammlung (collectionId) suchen.',
+            parameters: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Themensuche, z.B. "Physik" oder "Farben"' },
+                targetGroup: { type: 'string', enum: ['teacher', 'learner', 'general'], description: 'Zielgruppe: teacher/learner/general' },
+                collectionId: { type: 'string', description: 'NodeId einer Sammlung (optional, für direkten Check)' },
+                maxResults: { type: 'number', description: 'Max. Ergebnisse (1-5)' },
+              },
+            },
+          },
+        },
       ];
       // Apply tool filter from dockedTools (null = all tools allowed)
       const tools = allowedTools ? allTools.filter(t => allowedTools.includes(t.function.name)) : allTools;
 
       const toolRoutingRules = `## Tool-Routing-Regeln (strikt einhalten)
 - search_wlo_content STATT search_wlo_collections wenn der Nutzer nach konkreten Inhaltstypen fragt (Videos, Arbeitsblätter, PDFs, Übungen, Erklärvideos, Aufgaben, interaktive Materialien).
+- search_wlo_topic_pages wenn der Nutzer explizit nach "Themenseiten", "kuratierten Seiten" oder "topic pages" fragt. Auch nach search_wlo_collections nutzbar, um zu prüfen ob eine gefundene Sammlung eine Themenseite hat (collectionId übergeben).
 - get_wirlernenonline_info (oder get_edu_sharing_*) STATT search_wlo_collections wenn der Nutzer nach WirLernenOnline, edu-sharing oder metaVentis als Projekt/Plattform/Website fragt (z.B. "Was ist WLO?", "Wie funktioniert edu-sharing?").
 - search_wlo_collections nur für inhaltliche Themensuche (z.B. "Klimawandel", "Bruchrechnung").`;
 
@@ -806,7 +829,8 @@ Wichtig: Verlinke **alle verwendeten Inhalte** als [Titel](URL). Nutze ausschlie
             // Karten extrahieren für alle Tool-Typen die Nodes zurückgeben
             const isCardTool = toolName === 'search_wlo_collections'
               || toolName === 'search_wlo_content'
-              || toolName === 'get_collection_contents';
+              || toolName === 'get_collection_contents'
+              || toolName === 'search_wlo_topic_pages';
             if (isCardTool && resultText) {
               const toolDefault = toolName === 'search_wlo_content' ? 'content' : 'collection';
               const cards = this.parseWloCards(resultText, toolDefault);

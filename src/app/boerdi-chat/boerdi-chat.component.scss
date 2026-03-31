@@ -620,6 +620,15 @@ $radius:     14px;
     &:disabled { opacity: .45; cursor: default; }
   }
 
+  &--topic {
+    background: #f3e8ff;
+    color: #7c3aed;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    &:hover { background: #e9d5ff; }
+  }
+
   &--more {
     background: #f1f5f9;
     color: #334155;
